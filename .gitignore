@@ -16,4 +16,4 @@ output/
 logs/
 
 # 测试临时文件
-test/respons_user_weibolist.json
+resource/respons_user_weibolist.json
