@@ -95,7 +95,9 @@ class WeiboAPIClient:
         """设置网络响应拦截器，捕获 API 数据"""
         def on_response(response):
             url = response.url
+            logger.debug(f"🌐 网络请求: {url[:120]}")  # 打印日志
             if self.LIST_API_PATTERN.search(url):
+                logger.debug(f"🎯 匹配到 API: {url}")    # 打印日志
                 try:
                     body = response.json()
                     if isinstance(body, dict) and body.get("ok") == 1:
@@ -321,15 +323,13 @@ class WeiboAPIClient:
     # 时间解析
     # ============================================================
     def _parse_time(self, time_str: str) -> Optional[datetime]:
-        """解析 API 返回的时间格式"""
         if not time_str:
             return None
         try:
-            # "Thu May 21 17:39:36 +0800 2026"
-            return datetime.strptime(time_str, self.TIME_FORMAT)
+            dt = datetime.strptime(time_str, self.TIME_FORMAT)
+            return dt.replace(tzinfo=None)   # ← 去除时区，转为 naive
         except ValueError:
             pass
-        # 尝试其他格式
         from utils.time_utils import parse_weibo_time
         return parse_weibo_time(time_str)
 
