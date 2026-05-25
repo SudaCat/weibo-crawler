@@ -149,7 +149,7 @@ class WeiboAPIClient:
     def _parse_single_item(self, item: dict) -> WeiboPost:
         """将 API 返回的单条微博 JSON 解析为 WeiboPost"""
         # --- 基础字段 ---
-        weibo_id = str(item.get("id", "") or item.get("mid", ""))
+        weibo_id = str(item.get("mblogid", "") or item.get("mid", ""))
         mid = str(item.get("mid", ""))
         created_at = item.get("created_at", "")
         created_at_dt = self._parse_time(created_at)
