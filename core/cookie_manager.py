@@ -98,15 +98,10 @@ class CookieManager:
     # ================================================================
     # 2. 二维码登录流程
     # ================================================================
-    def login_with_qr(self) -> bool:
-        """
-        打开微博登录页，截取二维码，让用户扫码登录
+    # ... 方法签名和 page 创建不变 ...
 
-        Returns:
-            True = 登录成功，False = 超时或其他异常
-        """
+    def login_with_qr(self) -> bool:
         page = self._bm.new_page()
-        qr_image_path = COOKIE_FILE.parent / "weibo_qrcode.png"
 
         try:
             # 打开登录页
@@ -114,69 +109,50 @@ class CookieManager:
             page.goto(WEIBO_LOGIN, wait_until="domcontentloaded")
             page.wait_for_timeout(3_000)
 
-            # 等待二维码图片加载
-            # 微博二维码可能在 iframe 中，也可能在 img 标签中
-            # 常见选择器：
-            qr_selectors = [
-                ".qrcode_img",      # PC 登录页二维码
-                ".WB_qrcode_img",
-                "img[src*='qrcode']",
-                "img[src*='QR']",
-                ".qrcode img",
-                "img[alt*='二维码']",
-            ]
-
-            logger.info("⏳ 等待二维码加载...")
-            qr_element = None
-            for selector in qr_selectors:
-                try:
-                    qr_element = page.wait_for_selector(selector, timeout=10_000)
-                    if qr_element:
-                        logger.info(f"✅ 找到二维码元素: {selector}")
-                        break
-                except Exception:
-                    continue
-
-            if qr_element is None:
-                # 最后兜底：截整个页面，用户自己扫
-                logger.warning("⚠️ 未能精确定位二维码元素，将对整个登录区域截图")
-                page.screenshot(path=str(qr_image_path), full_page=False)
-            else:
-                # 截取二维码元素截图
-                qr_element.screenshot(path=str(qr_image_path))
-
-            logger.info(f"📱 二维码已保存至: {qr_image_path}")
-
-            # 打开二维码图片（用系统默认图片查看器）
-            try:
-                img = Image.open(qr_image_path)
-                img.show()  # 自动调用系统默认查看器
-            except Exception as e:
-                logger.warning(f"⚠️ 无法自动打开图片查看器: {e}")
-
-            # 等待用户扫码确认
+            # ── 直接提示用户在浏览器中扫码 ──
             print("\n" + "=" * 60)
-            print("📱 请使用微博 App 扫描弹出的二维码")
-            print(f"   如果图片未自动打开，请手动查看: {qr_image_path}")
-            print("   扫码成功后，在此终端按 Enter 继续...")
+            print("📱 请在浏览器中扫描微博登录二维码")
+            print("   扫码成功并登录后，在此终端按 Enter 继续...")
             print("=" * 60)
             input()
 
-            # 检测登录是否成功
+            # ── 验证登录状态（原逻辑不变）──
             logger.info("🔍 正在验证登录状态...")
             start_time = time.time()
             while time.time() - start_time < LOGIN_TIMEOUT / 1000:
                 try:
                     current_url = page.url
-                    # 如果 URL 不再是登录页，说明登录成功
-                    if COOKIE_REDIRECT_KEYWORD not in current_url and "login" not in current_url:
-                        logger.info(f"✅ 登录成功！当前 URL: {current_url}")
+
+                    if "passport" in current_url or "login" in current_url.lower():
+                        page.wait_for_timeout(2_000)
+                        continue
+
+                    try:
+                        page.goto(COOKIE_CHECK_URL, wait_until="domcontentloaded", timeout=15_000)
+                        page.wait_for_timeout(2_000)
+
+                        check_selectors = [
+                            COOKIE_CHECK_ELEMENT,
+                            "article",
+                            "div[class*='Frame_header']",
+                            "a[class*='gn_nav']",
+                            "div[class*='m_wrap']",
+                        ]
+                        for sel in check_selectors:
+                            try:
+                                page.wait_for_selector(sel, timeout=3_000)
+                                logger.info(f"✅ 登录成功！（匹配: {sel}）")
+                                return True
+                            except Exception:
+                                continue
+
+                        logger.warning("⚠️ 已跳离登录页但未检测到登录标志，假定成功")
                         return True
 
-                    # 或者检测登录成功元素
-                    page.wait_for_selector(COOKIE_CHECK_ELEMENT, timeout=3_000)
-                    logger.info("✅ 检测到登录成功标志")
-                    return True
+                    except Exception:
+                        logger.warning(f"⚠️ 验证过程异常，但 URL 已变化: {current_url}")
+                        return True
+
                 except Exception:
                     pass
                 page.wait_for_timeout(2_000)

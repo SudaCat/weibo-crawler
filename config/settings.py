@@ -36,7 +36,12 @@ USERS_CSV = BASE_DIR / "config" / "users.csv"
 # 微博 URL 模板
 # ============================================================
 WEIBO_HOMEPAGE = "https://weibo.com"                    # 微博首页（验证cookie）
-WEIBO_LOGIN = "https://weibo.com/login.php"             # 登录页
+WEIBO_LOGIN = (
+    "https://passport.weibo.com/sso/signin"
+    "?entry=miniblog&source=miniblog&disp=popup"
+    "&url=https%3A%2F%2Fweibo.com%2Fnewlogin%3Ftabtype%3Dweibo%26gid%3D102803%26openLoginLayer%3D0%26url%3D"
+    "&from=weibopro"
+)                                                       # 登录页（新版 passport）
 WEIBO_USER_PAGE = "https://weibo.com/u/{user_id}"       # 用户主页
 WEIBO_SEARCH = "https://s.weibo.com/weibo?q=@{username}&typeall=1&suball=1&timescope=custom:{start}:{end}&Refer=g"
 
@@ -77,7 +82,7 @@ window.navigator.permissions.query = (parameters) => (
 # ============================================================
 COOKIE_CHECK_URL = WEIBO_HOMEPAGE          # 验证时访问的页面
 COOKIE_CHECK_ELEMENT = "article"           # 修改后（推荐使用 article，已登录首页一定有微博卡片）
-COOKIE_REDIRECT_KEYWORD = "login.php"      # 被重定向到登录页的 URL 关键词
+COOKIE_REDIRECT_KEYWORD = "passport.weibo.com"  # 被重定向到登录页的 URL 关键词（新版 passport）
 
 # ============================================================
 # 爬虫配置
