@@ -15,6 +15,5 @@ venv/
 output/
 logs/
 
-# 测试临时文件
-resource/respons_user_weibolist.json
-resource/respons_user_weibolist_only3.json
+# 外部参考资料
+fixtures/
