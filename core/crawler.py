@@ -59,19 +59,10 @@ class WeiboCrawler:
     # 主入口
     # ================================================================
     def crawl(self) -> list[dict]:
-        """
-        执行爬取，返回结果列表（与 EXCEL_HEADERS 对应）
-        """
         logger.info(f"🔍 开始爬取用户: {self.username} ({self.user_id})")
         logger.info(f"   时间范围: {self.start_date} ~ {self.end_date or '最新'}")
 
-        # 打开用户主页
-        homepage_url = WEIBO_USER_PAGE.format(user_id=self.user_id)
-        self.page.goto(homepage_url, wait_until="domcontentloaded")
-        self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(3_000)
-
-        # 初始化 API 拦截
+        # ✅ 先初始化 API 拦截（必须在 goto 之前！）
         if USE_API_DATA_SOURCE:
             self.api_client = WeiboAPIClient(self.page)
             logger.info("📡 已启用 API 拦截模式")
@@ -79,12 +70,16 @@ class WeiboCrawler:
             self.api_client = None
             logger.info("📄 使用 DOM 解析模式（API 已禁用）")
 
+        # 再导航到用户主页
+        homepage_url = WEIBO_USER_PAGE.format(user_id=self.user_id)
+        self.page.goto(homepage_url, wait_until="domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(3_000)
+
         # 滚动加载并收集
         self._scroll_and_collect()
 
-        logger.info(
-            f"✅ 用户 {self.username} 爬取完成，共 {len(self.results)} 条微博"
-        )
+        logger.info(f"✅ 用户 {self.username} 爬取完成，共 {len(self.results)} 条微博")
         return self.results
 
     # ================================================================
