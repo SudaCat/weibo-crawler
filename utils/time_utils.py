@@ -179,6 +179,10 @@ def is_in_range(
             return True
     else:
         weibo_dt = weibo_time
+        
+    # 防御：如果 weibo_dt 带时区，去除
+    if weibo_dt.tzinfo is not None:
+        weibo_dt = weibo_dt.replace(tzinfo=None)
 
     # end 只给到日期的话，补全到当天 23:59:59
     if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
@@ -191,16 +195,6 @@ def is_before_start(
     weibo_time: Union[str, datetime],
     start: Union[str, datetime]
 ) -> bool:
-    """
-    判断微博时间是否早于开始日期（用于判断是否停止翻页）
-
-    Args:
-        weibo_time: 微博发布时间
-        start: 配置的开始日期
-
-    Returns:
-        True 表示微博时间早于开始日期，可以停止爬取
-    """
     if isinstance(start, str):
         start_dt = parse_date(start)
     else:
@@ -212,5 +206,9 @@ def is_before_start(
             return False
     else:
         weibo_dt = weibo_time
+
+    # 防御：如果 weibo_dt 带时区，去除
+    if weibo_dt.tzinfo is not None:
+        weibo_dt = weibo_dt.replace(tzinfo=None)
 
     return weibo_dt < start_dt
