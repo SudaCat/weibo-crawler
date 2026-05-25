@@ -1,0 +1,354 @@
+"""
+核心爬虫模块（API 优先版本）
+通过 WeiboAPIClient 拦截 AJAX 接口获取结构化微博数据，
+仅在 API 不可用时回退到 DOM/XPath 解析（可选）。
+截图功能仍需 DOM 元素定位，故保留轻量 DOM 交互。
+"""
+
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from loguru import logger
+from playwright.sync_api import Page, Locator
+
+from config.settings import (
+    WEIBO_USER_PAGE,
+    SCROLL_WAIT,
+    MAX_SCROLL_NO_NEW,
+    MAX_WEIBO_COUNT,
+    USE_API_DATA_SOURCE,
+    API_FALLBACK_TO_DOM,
+)
+from core.weibo_api import WeiboAPIClient, WeiboPost
+from core.media_downloader import MediaDownloader
+from core.screenshot import ScreenshotCapture
+from utils.anti_ban import random_delay, human_like_delay
+from utils.time_utils import parse_weibo_time, is_before_start, is_in_range
+
+
+class WeiboCrawler:
+    """微博用户爬虫（API 优先）"""
+
+    def __init__(
+        self,
+        page: Page,
+        user_id: str,
+        username: str,
+        start_date: str,
+        end_date: Optional[str] = None,
+        cookies: Optional[list[dict]] = None,
+    ):
+        self.page = page
+        self.user_id = user_id
+        self.username = username
+        self.start_date = start_date
+        self.end_date = end_date
+
+        # API 客户端（在 crawl 时初始化，需要页面已导航到目标）
+        self.api_client: Optional[WeiboAPIClient] = None
+
+        # 下载 & 截图
+        self.downloader = MediaDownloader(user_id=user_id, cookies=cookies)
+        self.screenshotter = ScreenshotCapture()
+
+        self.results: list[dict] = []
+
+    # ================================================================
+    # 主入口
+    # ================================================================
+    def crawl(self) -> list[dict]:
+        """
+        执行爬取，返回结果列表（与 EXCEL_HEADERS 对应）
+        """
+        logger.info(f"🔍 开始爬取用户: {self.username} ({self.user_id})")
+        logger.info(f"   时间范围: {self.start_date} ~ {self.end_date or '最新'}")
+
+        # 打开用户主页
+        homepage_url = WEIBO_USER_PAGE.format(user_id=self.user_id)
+        self.page.goto(homepage_url, wait_until="domcontentloaded")
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(3_000)
+
+        # 初始化 API 拦截
+        if USE_API_DATA_SOURCE:
+            self.api_client = WeiboAPIClient(self.page)
+            logger.info("📡 已启用 API 拦截模式")
+        else:
+            self.api_client = None
+            logger.info("📄 使用 DOM 解析模式（API 已禁用）")
+
+        # 滚动加载并收集
+        self._scroll_and_collect()
+
+        logger.info(
+            f"✅ 用户 {self.username} 爬取完成，共 {len(self.results)} 条微博"
+        )
+        return self.results
+
+    # ================================================================
+    # 滚动加载 + 逐条处理
+    # ================================================================
+    def _scroll_and_collect(self) -> None:
+        """滚动页面，从 API 拦截数据中提取微博信息"""
+        processed_ids: set[str] = set()
+        no_new_count = 0
+
+        while True:
+            # ---------- 从 API 获取本轮新增微博 ----------
+            if self.api_client:
+                new_posts = self.api_client.get_intercepted_posts(clear=True)
+            else:
+                new_posts = self._fallback_dom_extract()
+
+            new_processed = 0
+
+            for post in new_posts:
+                wid = post.weibo_id
+                if not wid or wid in processed_ids:
+                    continue
+
+                # --- 时间范围判断 ---
+                weibo_dt = post.created_at_dt
+
+                if weibo_dt and is_before_start(weibo_dt, self.start_date):
+                    logger.info(
+                        f"⏹ 微博时间 {weibo_dt} 早于 {self.start_date}，停止滚动"
+                    )
+                    return
+
+                if (
+                    weibo_dt
+                    and self.end_date
+                    and not is_in_range(weibo_dt, self.start_date, self.end_date)
+                ):
+                    logger.debug(f"⏭ 微博 {wid} 不在时间范围内，跳过")
+                    processed_ids.add(wid)
+                    continue
+
+                # --- 处理单条 ---
+                random_delay(reason="处理下一条微博")
+                result = self._process_single_post(post)
+                self.results.append(result)
+                processed_ids.add(wid)
+                new_processed += 1
+
+                if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
+                    logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
+                    return
+
+            # --- 停止判断 ---
+            if new_processed == 0:
+                no_new_count += 1
+                if no_new_count >= MAX_SCROLL_NO_NEW:
+                    logger.info("⏹ 连续多次无新内容，停止滚动")
+                    return
+            else:
+                no_new_count = 0
+
+            # --- 滚动 ---
+            self._scroll_down()
+
+    # ================================================================
+    # 单条微博处理（API 版本）
+    # ================================================================
+    def _process_single_post(self, post: WeiboPost) -> dict:
+        """
+        根据 WeiboPost（API 数据）处理一条微博：
+        下载媒体 → 截图 → 组装结果
+        """
+        # 1. 时间格式化
+        if post.created_at_dt:
+            time_formatted = post.created_at_dt.strftime("%Y%m%d_%H%M%S")
+            time_display = post.created_at_dt.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            time_formatted = datetime.now().strftime("%Y%m%d_%H%M%S")
+            time_display = "未知时间"
+
+        content = post.text_raw or ""
+
+        # 2. 下载媒体
+        download_result = {"images": 0, "live_photos": 0, "videos": 0}
+        try:
+            download_result = self.downloader.download_weibo_media(
+                weibo_id=post.weibo_id,
+                weibo_time=time_formatted,
+                content=content,
+                image_urls=post.image_urls,
+                live_photo_pairs=post.live_photo_pairs,
+                video_urls=post.video_urls,
+            )
+        except Exception as e:
+            logger.error(f"❌ 媒体下载失败（微博 {post.weibo_id}）: {e}")
+
+        # 3. 截图（需要定位 DOM 元素）
+        try:
+            card = self._find_card_by_weibo_id(post.weibo_id)
+            body_div = None
+            if card:
+                body_div = card.locator(
+                    "xpath=.//div[contains(@class, '_body_')]"
+                )
+                if body_div.count() == 0:
+                    body_div = card
+            self.screenshotter.capture_weibo(
+                page=self.page,
+                user_id=self.user_id,
+                weibo_time=time_formatted,
+                weibo_id=post.weibo_id,
+                content=content,
+                weibo_element=body_div if body_div and body_div.count() > 0 else None,
+            )
+        except Exception as e:
+            logger.error(f"❌ 截图失败（微博 {post.weibo_id}）: {e}")
+
+        # 4. 微博类型
+        weibo_type = post.weibo_type  # 优先用 WeiboPost 的属性
+
+        # 5. 微博 URL
+        weibo_url = f"https://weibo.com/{self.user_id}/{post.weibo_id}"
+
+        return {
+            "用户id": self.user_id,
+            "用户名": self.username,
+            "微博发布时间": time_display,
+            "微博类型": weibo_type,
+            "文案": content,
+            "图片数量": len(post.image_urls),
+            "Live图数量": len(post.live_photo_pairs),
+            "视频数量": len(post.video_urls),
+            "图片下载数量": download_result.get("images", 0),
+            "Live图下载数量": download_result.get("live_photos", 0),
+            "视频下载数量": download_result.get("videos", 0),
+            "爬虫结果": "成功",
+            "微博url": weibo_url,
+        }
+
+    # ================================================================
+    # 辅助：在 DOM 中按 weibo_id 定位卡片（仅截图用）
+    # ================================================================
+    def _find_card_by_weibo_id(self, weibo_id: str) -> Optional[Locator]:
+        """在页面中查找包含指定 weibo_id 的 article 卡片"""
+        try:
+            cards = self.page.locator("article").all()
+            for card in cards:
+                hrefs = card.locator(
+                    f"a[href*='{weibo_id}']"
+                ).all()
+                if hrefs:
+                    return card
+        except Exception:
+            pass
+        return None
+
+    # ================================================================
+    # DOM 回退模式（当 API 不可用时）
+    # ================================================================
+    def _fallback_dom_extract(self) -> list[WeiboPost]:
+        """
+        回退：DOM 解析转 WeiboPost
+        仅在 USE_API_DATA_SOURCE=False 时使用
+        """
+        posts: list[WeiboPost] = []
+        if not API_FALLBACK_TO_DOM:
+            return posts
+
+        try:
+            cards = self.page.locator("article").all()
+            for card in cards:
+                weibo_id = self._deprecated_extract_weibo_id(card)
+                time_text = self._deprecated_extract_time(card)
+                content = self._deprecated_extract_content(card)
+                image_urls = self._deprecated_extract_image_urls(card)
+
+                weibo_dt = parse_weibo_time(time_text) if time_text else None
+
+                posts.append(
+                    WeiboPost(
+                        weibo_id=weibo_id or "",
+                        mid="",
+                        created_at=time_text or "",
+                        created_at_dt=weibo_dt,
+                        text_raw=content,
+                        text_html=content,
+                        image_urls=image_urls,
+                        live_photo_pairs=[],
+                        video_urls=[],
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"DOM 回退提取失败: {e}")
+
+        return posts
+
+    # ================================================================
+    # 以下为原 DOM/XPath 提取方法（降级为回退/废弃）
+    # ================================================================
+    def _deprecated_extract_weibo_id(self, card: Locator) -> Optional[str]:
+        try:
+            links = card.locator("a[href*='weibo.com']").all()
+            for link in links:
+                href = link.get_attribute("href") or ""
+                m = re.search(r"weibo\.com/\d+/([A-Za-z0-9]+)", href)
+                if m:
+                    return m.group(1)
+        except Exception:
+            pass
+        return None
+
+    def _deprecated_extract_time(self, card: Locator) -> Optional[str]:
+        try:
+            time_el = card.locator("time").first
+            if time_el.count() > 0:
+                return time_el.inner_text()
+            time_el = card.locator("a[href*='/status/']").first
+            if time_el.count() > 0:
+                return time_el.inner_text()
+        except Exception:
+            pass
+        return None
+
+    def _deprecated_extract_content(self, card: Locator) -> str:
+        from config.settings import WEIBO_TEXT_XPATHS
+
+        for xpath in WEIBO_TEXT_XPATHS:
+            try:
+                el = card.locator(f"xpath=.{xpath}").first
+                if el.count() > 0:
+                    return el.inner_text().strip()
+            except Exception:
+                continue
+        return ""
+
+    def _deprecated_extract_image_urls(self, card: Locator) -> list[str]:
+        urls = []
+        try:
+            imgs = card.locator("img[src*='sinaimg']").all()
+            for img in imgs:
+                src = img.get_attribute("src") or ""
+                if not src or "http" not in src:
+                    continue
+                width = img.get_attribute("width") or ""
+                if width and int(width) < 100:
+                    continue
+                src = (
+                    src.replace("thumb150", "large")
+                    .replace("orj360", "large")
+                )
+                urls.append(src)
+        except Exception:
+            pass
+        return urls
+
+    # ================================================================
+    # 滚动辅助
+    # ================================================================
+    def _scroll_down(self) -> None:
+        human_like_delay(1, 2)
+        current_scroll = self.page.evaluate("window.scrollY")
+        view_height = self.page.evaluate("window.innerHeight")
+        new_scroll = current_scroll + view_height * 0.8
+        self.page.evaluate(f"window.scrollTo(0, {new_scroll})")
+        self.page.wait_for_timeout(SCROLL_WAIT)
+        logger.debug(f"📜 滚动: {current_scroll:.0f} → {new_scroll:.0f}")
