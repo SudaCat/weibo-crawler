@@ -25,7 +25,7 @@ from config.settings import (
     ENABLE_SCREENSHOT,
 )
 from utils.config_reader import read_users, update_last_crawl_time, validate_user
-from utils.excel_writer import write_results
+from utils.excel_writer import create_result_workbook, append_result_row
 from utils.anti_ban import human_like_delay
 from core.browser import BrowserManager
 from core.cookie_manager import CookieManager
@@ -125,6 +125,10 @@ def main() -> None:
 
     all_results = []  # 汇总所有用户结果
 
+    # --- 预创建 Excel（逐条写入，无需等全部爬完）---
+    wb, ws, output_path = create_result_workbook()
+    row_state = {"idx": 2}  # 数据行从第 2 行开始（第 1 行是表头）
+
     try:
         # --- 3. Cookie 管理 ---
         cm = CookieManager(bm)
@@ -174,6 +178,15 @@ def main() -> None:
             page = bm.new_page()
 
             try:
+                # 逐条写入回调（闭包捕获 user_id/ws/row_state/output_path）
+                def on_post(result: dict) -> None:
+                    append_result_row(ws, result, row_state["idx"])
+                    row_state["idx"] += 1
+                    wb.save(str(output_path))
+                    update_last_crawl_time(
+                        user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+
                 crawler = WeiboCrawler(
                     page=page,
                     user_id=user_id,
@@ -181,9 +194,7 @@ def main() -> None:
                     start_date=start_date,
                     end_date=end_date,
                     cookies=cookies,
-                    on_post_processed=lambda uid=user_id: update_last_crawl_time(
-                        uid, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    ),
+                    on_post_processed=on_post,
                 )
                 user_results = crawler.crawl()
                 all_results.extend(user_results)
@@ -193,56 +204,57 @@ def main() -> None:
             except Exception as e:
                 logger.error(f"❌ 用户 {username} 爬取异常: {e}")
                 logger.debug(traceback.format_exc())
-                # 记录一条失败信息
-                all_results.append({
+                # 记录一条失败信息（同时写入 Excel）
+                fail_record = {
                     "用户id": user_id,
                     "用户名": username,
                     "微博发布时间": "",
                     "微博类型": "",
                     "文案": "",
+                    "爬虫结果": f"失败: {str(e)[:100]}",
+                    "微博url": "",
                     "图片数量": 0,
                     "Live图数量": 0,
                     "视频数量": 0,
                     "图片下载数量": 0,
                     "Live图下载数量": 0,
                     "视频下载数量": 0,
-                    "爬虫结果": f"失败: {str(e)[:100]}",
-                    "微博url": "",
-                })
+                }
+                all_results.append(fail_record)
+                try:
+                    append_result_row(ws, fail_record, row_state["idx"])
+                    row_state["idx"] += 1
+                    wb.save(str(output_path))
+                except Exception:
+                    pass
             finally:
                 # 关闭当前用户页面
                 if not page.is_closed():
                     page.close()
 
-        # --- 5. 写入 Excel ---
-        if all_results:
-            logger.info(f"📊 共收集 {len(all_results)} 条结果，正在写入 Excel...")
-            output_path = write_results(all_results)
-            logger.info(f"🎉 全部完成！结果文件: {output_path}")
-        else:
-            logger.warning("⚠️ 未收集到任何结果，跳过 Excel 输出")
+        # --- 5. 收尾 ---
+        ws.auto_filter.ref = ws.dimensions
+        wb.save(str(output_path))
+        logger.info(f"🎉 全部完成！结果文件: {output_path}（共 {len(all_results)} 条）")
 
     except KeyboardInterrupt:
         logger.warning("⏹ 用户中断（Ctrl+C）")
-        # 尽力保存已有结果
-        if all_results:
-            logger.info("💾 正在保存已爬取的结果...")
-            try:
-                output_path = write_results(all_results)
-                logger.info(f"✅ 已保存部分结果: {output_path}")
-            except Exception as e:
-                logger.error(f"❌ 保存失败: {e}")
+        try:
+            ws.auto_filter.ref = ws.dimensions
+            wb.save(str(output_path))
+            logger.info(f"💾 已保存: {output_path}")
+        except Exception as e:
+            logger.error(f"❌ 保存失败: {e}")
 
     except Exception as e:
         logger.error(f"❌ 运行时异常: {e}")
         logger.debug(traceback.format_exc())
-        # 同样尽量保存
-        if all_results:
-            try:
-                output_path = write_results(all_results)
-                logger.info(f"✅ 已保存部分结果: {output_path}")
-            except Exception as ex:
-                logger.error(f"❌ 保存失败: {ex}")
+        try:
+            ws.auto_filter.ref = ws.dimensions
+            wb.save(str(output_path))
+            logger.info(f"💾 已保存: {output_path}")
+        except Exception as ex:
+            logger.error(f"❌ 保存失败: {ex}")
 
     finally:
         # --- 6. 资源清理 ---

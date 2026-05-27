@@ -52,16 +52,8 @@ class WeiboPost:
     # --- 微博类型（推导属性） ---
     @property
     def weibo_type(self) -> str:
-        """根据字段自动推导微博类型"""
-        if self.is_retweet:
-            return "转发"
-        if self.has_video:
-            return "视频"
-        if self.has_live_photo:
-            return "Live图"
-        if self.image_urls:
-            return "图文"
-        return "纯文字"
+        """转发 or 原创"""
+        return "转发" if self.is_retweet else "原创"
 
     # 原始数据（用于调试/扩展）
     raw: dict = field(default_factory=dict)

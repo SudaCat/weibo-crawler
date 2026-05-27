@@ -42,7 +42,7 @@ class WeiboCrawler:
         start_date: str,
         end_date: Optional[str] = None,
         cookies: Optional[list[dict]] = None,
-        on_post_processed: Optional[Callable[[], None]] = None,
+        on_post_processed: Optional[Callable[[dict], None]] = None,
     ):
         self.page = page
         self.user_id = user_id
@@ -139,9 +139,9 @@ class WeiboCrawler:
                 processed_ids.add(wid)
                 new_processed += 1
 
-                # 回调：更新最后抓取时间等
+                # 回调：写入 Excel 结果 & 更新最后抓取时间等
                 if self.on_post_processed:
-                    self.on_post_processed()
+                    self.on_post_processed(result)
 
                 if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
                     logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
