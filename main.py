@@ -5,10 +5,18 @@
     → 遍历用户爬取 → 结果汇总 → Excel 输出 → 资源清理
 """
 
+import shutil
 import sys
 import traceback
 from datetime import datetime
 from pathlib import Path
+
+# --- 确保 settings.py 存在（首次运行自动从模板创建）---
+_SETTINGS_FILE = Path(__file__).resolve().parent / "config" / "settings.py"
+_SETTINGS_TEMPLATE = Path(__file__).resolve().parent / "config" / "settings.example.py"
+if not _SETTINGS_FILE.exists() and _SETTINGS_TEMPLATE.exists():
+    shutil.copy(_SETTINGS_TEMPLATE, _SETTINGS_FILE)
+    print(f"[初始化] 已从模板创建 {_SETTINGS_FILE}")
 
 from loguru import logger
 
