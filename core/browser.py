@@ -43,9 +43,16 @@ class BrowserManager:
     # ================================================================
     # 启动浏览器
     # ================================================================
-    def start(self) -> None:
-        """启动 Playwright 和 Chromium 浏览器"""
-        logger.info("🚀 正在启动浏览器...")
+    def start(self, headless: Optional[bool] = None) -> None:
+        """启动 Playwright 和 Chromium 浏览器
+
+        Args:
+            headless: 是否无头模式，None 则使用 settings.HEADLESS
+        """
+        if headless is None:
+            headless = HEADLESS
+        mode = "无头" if headless else "有头"
+        logger.info(f"🚀 正在启动浏览器（{mode}模式）...")
 
         self._playwright = sync_playwright().start()
 
@@ -57,7 +64,7 @@ class BrowserManager:
         ]
 
         self._browser = self._playwright.chromium.launch(
-            headless=HEADLESS,
+            headless=headless,
             args=launch_args,
         )
 
@@ -69,9 +76,16 @@ class BrowserManager:
             timezone_id="Asia/Shanghai",
         )
 
-        # 给上下文页面数量加一，后续创建页面时用——先不预创建，用时再 new_page
-        # 但可以先做一次行为验证
         logger.info("✅ 浏览器启动完成")
+
+    # ================================================================
+    # 重启浏览器（切换有头/无头模式）
+    # ================================================================
+    def restart(self, headless: bool) -> None:
+        """关闭当前浏览器并以指定模式重新启动"""
+        logger.info(f"🔄 正在重启浏览器（{'无头' if headless else '有头'}模式）...")
+        self.stop()
+        self.start(headless=headless)
 
     # ================================================================
     # 加载 Cookie（从文件恢复到上下文）

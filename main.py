@@ -21,6 +21,7 @@ from config.settings import (
     COOKIE_DIR,
     DOWNLOAD_DIR,
     RESULT_DIR,
+    ENABLE_SCREENSHOT,
 )
 from utils.config_reader import read_users, validate_user
 from utils.excel_writer import write_results
@@ -112,9 +113,11 @@ def main() -> None:
     logger.info(f"📋 待爬取用户: {len(valid_users)} 个")
 
     # --- 2. 启动浏览器 ---
+    # 截图关闭时默认无头运行，仅登录时短暂切回有头
+    use_headless = not ENABLE_SCREENSHOT
     bm = BrowserManager()
     try:
-        bm.start()
+        bm.start(headless=use_headless)
     except Exception as e:
         logger.error(f"❌ 浏览器启动失败: {e}")
         return
@@ -124,11 +127,26 @@ def main() -> None:
     try:
         # --- 3. Cookie 管理 ---
         cm = CookieManager(bm)
-        try:
-            cm.ensure_valid_cookie()
-        except RuntimeError as e:
-            logger.error(f"❌ 登录失败: {e}")
-            return
+        cookies_ok = cm.is_cookie_valid()
+
+        if not cookies_ok:
+            # 如果需要登录但当前是无头模式，先切回有头以便扫码
+            if use_headless:
+                logger.info("🪟 切换为有头模式以便扫码登录...")
+                bm.restart(headless=False)
+
+            try:
+                cm.ensure_valid_cookie()
+            except RuntimeError as e:
+                logger.error(f"❌ 登录失败: {e}")
+                return
+
+            # 登录成功后切回无头模式爬取
+            if use_headless:
+                logger.info("👻 登录完成，切换回无头模式...")
+                bm.restart(headless=True)
+                # 重新加载已保存的 cookie 到无头上下文
+                bm.load_cookies()
 
         # 获取 Cookie 列表（供下载器使用）
         cookies = bm.context.cookies()
