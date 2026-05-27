@@ -2,7 +2,7 @@
 核心爬虫模块（API 优先版本）
 通过 WeiboAPIClient 拦截 AJAX 接口获取结构化微博数据，
 仅在 API 不可用时回退到 DOM/XPath 解析（可选）。
-截图功能仍需 DOM 元素定位，故保留轻量 DOM 交互。
+截图功能已独立抽离，通过 ENABLE_SCREENSHOT 配置开关控制。
 """
 
 import re
@@ -20,12 +20,15 @@ from config.settings import (
     MAX_WEIBO_COUNT,
     USE_API_DATA_SOURCE,
     API_FALLBACK_TO_DOM,
+    ENABLE_SCREENSHOT,
 )
 from core.weibo_api import WeiboAPIClient, WeiboPost
 from core.media_downloader import MediaDownloader
-from core.screenshot import ScreenshotCapture
 from utils.anti_ban import random_delay, human_like_delay
 from utils.time_utils import parse_weibo_time, is_before_start, is_in_range
+
+if ENABLE_SCREENSHOT:
+    from core.screenshot import ScreenshotCapture
 
 
 class WeiboCrawler:
@@ -49,9 +52,11 @@ class WeiboCrawler:
         # API 客户端（在 crawl 时初始化，需要页面已导航到目标）
         self.api_client: Optional[WeiboAPIClient] = None
 
-        # 下载 & 截图
+        # 下载
         self.downloader = MediaDownloader(user_id=user_id, cookies=cookies)
-        self.screenshotter = ScreenshotCapture()
+
+        # 截图（独立功能，可配置开关）
+        self.screenshotter = ScreenshotCapture() if ENABLE_SCREENSHOT else None
 
         self.results: list[dict] = []
 
@@ -177,29 +182,11 @@ class WeiboCrawler:
         except Exception as e:
             logger.error(f"❌ 媒体下载失败（微博 {post.weibo_id}）: {e}")
 
-        # 3. 截图（需要定位 DOM 元素）
-        try:
-            card = self._find_card_by_weibo_id(post.weibo_id)
-            body_div = None
-            if card:
-                body_div = card.locator(
-                    "xpath=.//div[contains(@class, '_body_')]"
-                )
-                if body_div.count() == 0:
-                    body_div = card
-            self.screenshotter.capture_weibo(
-                page=self.page,
-                user_id=self.user_id,
-                weibo_time=time_formatted,
-                weibo_id=post.weibo_id,
-                content=content,
-                weibo_element=body_div if body_div and body_div.count() > 0 else None,
-            )
-        except Exception as e:
-            logger.error(f"❌ 截图失败（微博 {post.weibo_id}）: {e}")
+        # 3. 截图（独立功能，由配置开关控制）
+        self._capture_weibo_screenshot(post, time_formatted, content)
 
         # 4. 微博类型
-        weibo_type = post.weibo_type  # 优先用 WeiboPost 的属性
+        weibo_type = post.weibo_type
 
         # 5. 微博 URL
         weibo_url = f"https://weibo.com/{self.user_id}/{post.weibo_id}"
@@ -219,6 +206,36 @@ class WeiboCrawler:
             "爬虫结果": "成功",
             "微博url": weibo_url,
         }
+
+    # ================================================================
+    # 截图（独立功能 — 由 ENABLE_SCREENSHOT 开关控制）
+    # ================================================================
+    def _capture_weibo_screenshot(
+        self, post: WeiboPost, time_formatted: str, content: str
+    ) -> None:
+        """截图入口，受 ENABLE_SCREENSHOT 配置控制"""
+        if not self.screenshotter:
+            return
+
+        try:
+            card = self._find_card_by_weibo_id(post.weibo_id)
+            body_div = None
+            if card:
+                body_div = card.locator(
+                    "xpath=.//div[contains(@class, '_body_')]"
+                )
+                if body_div.count() == 0:
+                    body_div = card
+            self.screenshotter.capture_weibo(
+                page=self.page,
+                user_id=self.user_id,
+                weibo_time=time_formatted,
+                weibo_id=post.weibo_id,
+                content=content,
+                weibo_element=body_div if body_div and body_div.count() > 0 else None,
+            )
+        except Exception as e:
+            logger.error(f"截图失败（微博 {post.weibo_id}）: {e}")
 
     # ================================================================
     # 辅助：在 DOM 中按 weibo_id 定位卡片（仅截图用）

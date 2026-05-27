@@ -3,6 +3,7 @@
 - 按 XPath 定位微博正文区域并截图
 - 保存至对应微博媒体文件夹内
 - 自动清理文件名非法字符
+- 完全独立，不依赖爬虫或下载器模块
 """
 
 import re
@@ -18,11 +19,10 @@ from config.settings import (
     SCREENSHOT_QUALITY,
     WEIBO_CONTENT_XPATHS,
 )
-from core.media_downloader import MediaDownloader
 
 
 class ScreenshotCapture:
-    """微博内容截图器"""
+    """微博内容截图器（独立模块，可单独启用/禁用）"""
 
     def __init__(self):
         pass
@@ -123,8 +123,19 @@ class ScreenshotCapture:
 
         return None
 
+    # ================================================================
+    # 文件夹命名工具
+    # ================================================================
     @staticmethod
     def _make_folder_name(weibo_time: str, weibo_id: str, content: str) -> str:
-        """调用 MediaDownloader 的净化逻辑，保持文件夹名一致"""
-        safe = MediaDownloader.sanitize_text(content)
+        safe = ScreenshotCapture._sanitize_text(content)
         return f"{weibo_time}_{weibo_id}_{safe}"
+
+    @staticmethod
+    def _sanitize_text(text: str, max_len: int = 50) -> str:
+        """清理文件名中的非法字符"""
+        if not text:
+            return "无文案"
+        text = re.sub(r'[\\/:*?"<>|]', '', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text[:max_len]
