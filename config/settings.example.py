@@ -102,7 +102,6 @@ DELAY_AFTER_CLICK = 2                   # 点击后额外延时（秒）
 # ============================================================
 # 媒体下载配置
 # ============================================================
-SCREENSHOT_DIR_NAME = "screenshots"     # 截图子目录名
 DOWNLOAD_RETRY = 3                      # 下载失败重试次数
 DOWNLOAD_CONCURRENCY = 3                # 并发下载数
 
@@ -116,24 +115,7 @@ IMAGE_SIZE_PREFERENCE = ["largest", "original", "mw2000", "large"]
 USE_API_DATA_SOURCE = True              # 优先使用 API 拦截数据（推荐开启）
 API_FALLBACK_TO_DOM = True              # API 获取失败时回退到 DOM 解析
 
-# ============================================================
-# 截图配置
-# ============================================================
-ENABLE_SCREENSHOT = False                # 是否启用截图功能（False = 完全跳过截图，仅做 API 爬取与媒体下载）
-SCREENSHOT_FORMAT = "png"               # 截图格式
-SCREENSHOT_QUALITY = 90                 # 截图质量（仅 jpeg 有效）
-SCREENSHOT_FULL_PAGE = False            # 是否截整页（False = 仅截微博正文区域）
-
-# 微博正文区域 XPath（用于截图定位）
-WEIBO_CONTENT_XPATHS = [
-    "//article",                                     # 微博卡片
-    "//div[contains(@class, '_body_')]",             # 新版正文整体区域
-    "//div[@class='WB_detail']",                     # 老版微博正文
-    "//div[contains(@class,'detail_wbtext')]",       # 旧版正文容器
-    "//div[@class='Feed_body_3R0rO']",               # 新版Feed正文
-]
-
-# 微博文案文本区域 XPath（用于提取纯文案文字）
+# 微博文案文本区域 XPath（用于 DOM 回退提取纯文案文字）
 WEIBO_TEXT_XPATHS = [
     "//div[starts-with(@class, '_wbtext')]",         # 新版微博文案区域
     "//div[contains(@class, 'WB_text')]",            # 老版微博文案

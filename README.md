@@ -1,13 +1,12 @@
 # Weibo Crawler
 
-基于 Playwright 的微博用户帖子爬虫，支持 API 拦截采集、多媒体下载、截图和 Excel 报告输出。
+基于 Playwright 的微博用户帖子爬虫，支持 API 拦截采集、多媒体下载和 Excel 报告输出。
 
 ## 功能特性
 
 - **API 拦截采集** — 拦截微博前端 AJAX 请求获取结构化 JSON 数据，比 DOM 解析更稳定、数据更丰富
 - **DOM 降级解析** — API 拦截失效时自动回退到 DOM/XPath 解析
 - **多媒体下载** — 自动下载图片、Live Photo（静态图 + 视频）、视频，支持并发下载和断点续传
-- **截图留存** — 对每条微博内容区域截图保存
 - **日期过滤** — 支持按时间范围筛选微博
 - **反爬策略** — stealth JS 注入、类人随机延迟、反自动化浏览器参数
 - **Cookie 持久化** — 扫码登录一次后保存 Cookie，后续运行自动复用
@@ -28,8 +27,7 @@ weibo-crawler/
 │   ├── cookie_manager.py       # CookieManager — 扫码登录与 Cookie 校验/持久化
 │   ├── crawler.py              # WeiboCrawler — 核心爬取引擎（滚动、采集、处理）
 │   ├── weibo_api.py            # WeiboAPIClient — AJAX 请求拦截与 JSON 解析
-│   ├── media_downloader.py     # MediaDownloader — 图片/视频/Live Photo 下载
-│   └── screenshot.py           # ScreenshotCapture — 微博内容区域截图
+│   └── media_downloader.py     # MediaDownloader — 图片/视频/Live Photo 下载
 ├── utils/
 │   ├── anti_ban.py             # 随机/类人延时函数
 │   ├── config_reader.py        # users.csv 读取与校验
@@ -85,7 +83,6 @@ playwright install chromium
 | 反爬 | `SCROLL_WAIT`, `DELAY_MIN/MAX`, `STEALTH_JS` |
 | 爬取 | `MAX_WEIBO_COUNT`（0=不限）, `MAX_SCROLL_NO_NEW` |
 | 下载 | `DOWNLOAD_CONCURRENCY`, `DOWNLOAD_RETRY`, `IMAGE_SIZE_PREFERENCE` |
-| 截图 | 格式/质量/全页开关 |
 
 ## 运行
 
@@ -106,6 +103,6 @@ python main.py
 | 路径 | 内容 |
 |------|------|
 | `output/results/crawler_results_*.xlsx` | Excel 汇总报告，含用户、时间、类型、正文、媒体数量、下载状态、链接 |
-| `output/downloads/{uid}/{时间}_{微博id}_{正文}/` | 媒体文件与截图 |
+| `output/downloads/{uid}/{时间}_{微博id}_{正文}/` | 媒体文件 |
 | `output/cookies/weibo_cookies.json` | 持久化 Cookie |
 | `logs/crawler_YYYY-MM-DD.log` | 按天轮转的运行日志 |
