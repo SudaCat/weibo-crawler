@@ -7,6 +7,7 @@
 
 import sys
 import traceback
+from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
@@ -23,7 +24,7 @@ from config.settings import (
     RESULT_DIR,
     ENABLE_SCREENSHOT,
 )
-from utils.config_reader import read_users, validate_user
+from utils.config_reader import read_users, update_last_crawl_time, validate_user
 from utils.excel_writer import write_results
 from utils.anti_ban import human_like_delay
 from core.browser import BrowserManager
@@ -180,6 +181,9 @@ def main() -> None:
                     start_date=start_date,
                     end_date=end_date,
                     cookies=cookies,
+                    on_post_processed=lambda uid=user_id: update_last_crawl_time(
+                        uid, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    ),
                 )
                 user_results = crawler.crawl()
                 all_results.extend(user_results)

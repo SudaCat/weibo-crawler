@@ -144,7 +144,7 @@ def parse_weibo_time(time_str: str, now: Optional[datetime] = None) -> Optional[
 def is_in_range(
     weibo_time: Union[str, datetime],
     start: Union[str, datetime],
-    end: Union[str, datetime]
+    end: Optional[Union[str, datetime]] = None
 ) -> bool:
     """
     判断微博时间是否在 [start, end] 范围内（含边界）
@@ -152,7 +152,7 @@ def is_in_range(
     Args:
         weibo_time: 微博发布时间
         start: 配置的开始日期
-        end: 配置的结束日期
+        end: 配置的结束日期，None 表示无上限（仅检查 >= start）
 
     Returns:
         True 表示在范围内
@@ -165,7 +165,9 @@ def is_in_range(
     else:
         start_dt = start
 
-    if isinstance(end, str):
+    if end is None:
+        end_dt = None
+    elif isinstance(end, str):
         end_dt = parse_date(end)
         if end_dt is None:
             raise ValueError(f"无法解析结束日期: {end}")
@@ -179,10 +181,13 @@ def is_in_range(
             return True
     else:
         weibo_dt = weibo_time
-        
+
     # 防御：如果 weibo_dt 带时区，去除
     if weibo_dt.tzinfo is not None:
         weibo_dt = weibo_dt.replace(tzinfo=None)
+
+    if end_dt is None:
+        return start_dt <= weibo_dt
 
     # end 只给到日期的话，补全到当天 23:59:59
     if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:

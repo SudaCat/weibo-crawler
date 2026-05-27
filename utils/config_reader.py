@@ -25,7 +25,8 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
             "user_id": str,
             "username": str,
             "start_date": str,
-            "end_date": str | None   # None 表示无结束时间限制
+            "end_date": str,          # 为空时自动取当前系统时间
+            "last_crawl_time": str,   # 最近一次抓取时间
         }
 
     Raises:
@@ -36,7 +37,11 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
         csv_path = USERS_CSV
 
     if not csv_path.exists():
-        raise FileNotFoundError(f"用户配置文件不存在: {csv_path}")
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(csv_path, "w", encoding="utf-8") as f:
+            f.write("用户id|用户名|抓取开始时间|抓取停止时间|最后抓取时间\n")
+        logger.info(f"📄 已创建用户配置文件: {csv_path}")
+        return []
 
     users = []
 
@@ -44,7 +49,7 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
         reader = csv.DictReader(f, delimiter="|")
 
         # 校验表头
-        expected_fields = ["用户id", "用户名", "微博发布时间_开始", "微博发布时间_结束"]
+        expected_fields = ["用户id", "用户名", "抓取开始时间", "抓取停止时间", "最后抓取时间"]
         actual_fields = reader.fieldnames
         if actual_fields is None:
             raise ValueError("CSV 文件为空或格式错误")
@@ -64,25 +69,29 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
 
             user_id = row.get("用户id", "")
             username = row.get("用户名", "")
-            start_date = row.get("微博发布时间_开始", "")
-            end_date = row.get("微博发布时间_结束", "")
+            start_date = row.get("抓取开始时间", "")
+            end_date = row.get("抓取停止时间", "")
+            last_crawl_time = row.get("最后抓取时间", "")
 
             # 必填校验
             if not user_id:
                 logger.warning(f"第 {line_no} 行: 用户id 为空，跳过")
                 continue
             if not start_date:
-                logger.warning(f"第 {line_no} 行 ({user_id}): 微博发布时间_开始 为空，跳过")
+                logger.warning(f"第 {line_no} 行 ({user_id}): 抓取开始时间 为空，跳过")
                 continue
 
-            # 空字符串 → None
-            end_date = end_date if end_date else None
+            # 抓取停止时间为空 → 默认当前系统时间
+            if not end_date:
+                from datetime import datetime
+                end_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             user = {
                 "user_id": user_id,
                 "username": username or "",  # 用户名为空时用空字符串
                 "start_date": start_date,
                 "end_date": end_date,
+                "last_crawl_time": last_crawl_time or "",
             }
             users.append(user)
 
@@ -117,3 +126,38 @@ def validate_user(user: dict) -> bool:
             return False
 
     return True
+
+
+def update_last_crawl_time(
+    user_id: str, timestamp: str, csv_path: Optional[Path] = None
+) -> None:
+    """更新指定用户的最后抓取时间
+
+    Args:
+        user_id: 用户 ID
+        timestamp: 时间字符串（格式 YYYY-MM-DD HH:MM:SS）
+        csv_path: CSV 文件路径，默认使用 settings.USERS_CSV
+    """
+    import csv
+
+    if csv_path is None:
+        csv_path = USERS_CSV
+
+    if not csv_path.exists():
+        logger.warning(f"CSV 文件不存在，无法更新最后抓取时间: {csv_path}")
+        return
+
+    rows = []
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f, delimiter="|")
+        fieldnames = reader.fieldnames
+        for row in reader:
+            row = {k.strip(): v.strip() if v else "" for k, v in row.items()}
+            if row.get("用户id") == user_id:
+                row["最后抓取时间"] = timestamp
+            rows.append(row)
+
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="|")
+        writer.writeheader()
+        writer.writerows(rows)

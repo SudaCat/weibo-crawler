@@ -17,3 +17,6 @@ logs/
 
 # 外部参考资料
 fixtures/
+
+# 用户配置（含敏感信息，不入库）
+config/users.csv

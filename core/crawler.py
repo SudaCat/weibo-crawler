@@ -8,7 +8,7 @@
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from loguru import logger
 from playwright.sync_api import Page, Locator
@@ -42,12 +42,16 @@ class WeiboCrawler:
         start_date: str,
         end_date: Optional[str] = None,
         cookies: Optional[list[dict]] = None,
+        on_post_processed: Optional[Callable[[], None]] = None,
     ):
         self.page = page
         self.user_id = user_id
         self.username = username
         self.start_date = start_date
         self.end_date = end_date
+
+        # 每处理完一条微博后的回调（用于更新最后抓取时间等）
+        self.on_post_processed = on_post_processed
 
         # API 客户端（在 crawl 时初始化，需要页面已导航到目标）
         self.api_client: Optional[WeiboAPIClient] = None
@@ -112,20 +116,21 @@ class WeiboCrawler:
                 # --- 时间范围判断 ---
                 weibo_dt = post.created_at_dt
 
-                if weibo_dt and is_before_start(weibo_dt, self.start_date):
-                    logger.info(
-                        f"⏹ 微博时间 {weibo_dt} 早于 {self.start_date}，停止滚动"
-                    )
-                    return
-
-                if (
-                    weibo_dt
-                    and self.end_date
-                    and not is_in_range(weibo_dt, self.start_date, self.end_date)
-                ):
-                    logger.debug(f"⏭ 微博 {wid} 不在时间范围内，跳过")
+                if weibo_dt is None:
+                    logger.warning(f"⚠️ 微博 {wid} 时间解析失败，跳过")
                     processed_ids.add(wid)
                     continue
+
+                if not is_in_range(weibo_dt, self.start_date, self.end_date):
+                    if is_before_start(weibo_dt, self.start_date):
+                        logger.info(
+                            f"⏹ 微博时间 {weibo_dt} 早于 {self.start_date}，停止滚动"
+                        )
+                        return
+                    else:
+                        logger.debug(f"⏭ 微博 {wid} ({weibo_dt}) 超出时间范围，跳过")
+                        processed_ids.add(wid)
+                        continue
 
                 # --- 处理单条 ---
                 random_delay(reason="处理下一条微博")
@@ -133,6 +138,10 @@ class WeiboCrawler:
                 self.results.append(result)
                 processed_ids.add(wid)
                 new_processed += 1
+
+                # 回调：更新最后抓取时间等
+                if self.on_post_processed:
+                    self.on_post_processed()
 
                 if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
                     logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
