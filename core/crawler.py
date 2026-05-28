@@ -112,6 +112,12 @@ class WeiboCrawler:
                     processed_ids.add(wid)
                     continue
 
+                # 评论/赞过等非本人发布微博跳过
+                if post.is_comment:
+                    logger.info(f"💬 跳过非本人发布微博: {wid}")
+                    processed_ids.add(wid)
+                    continue
+
                 # --- 时间范围判断 ---
                 weibo_dt = post.created_at_dt
 

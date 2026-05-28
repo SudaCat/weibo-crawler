@@ -44,6 +44,7 @@ class WeiboPost:
     is_ad: bool = False                     # 是否广告
     is_long_text: bool = False              # 是否长文
     is_pinned: bool = False                 # 是否置顶
+    is_comment: bool = False                # 是否仅评论（非用户自己发布）
     has_video: bool = False                 # 是否有视频
     has_live_photo: bool = False            # 是否有 Live 图
 
@@ -168,6 +169,10 @@ class WeiboAPIClient:
         is_long_text = item.get("isLongText", False)
         is_pinned = item.get("isTop", 0) == 1 or item.get("mblogtype", 0) != 0
 
+        # 评论/赞过等非本人发布微博：analysis_extra 含 profile_insert_type
+        analysis_extra = item.get("analysis_extra", "")
+        is_comment = "profile_insert_type" in analysis_extra
+
         # --- 话题 ---
         topics = [
             t.get("topic_title", "")
@@ -194,6 +199,7 @@ class WeiboAPIClient:
             is_ad=is_ad,
             is_long_text=is_long_text,
             is_pinned=is_pinned,
+            is_comment=is_comment,
             has_video=has_video,
             has_live_photo=has_live_photo,
             topics=topics,
