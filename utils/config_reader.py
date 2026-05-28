@@ -27,6 +27,9 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
             "start_date": str,
             "end_date": str,          # 为空时自动取当前系统时间
             "last_crawl_time": str,   # 最近一次抓取时间
+            "last_run_time": str,     # 最近一次运行时间
+            "enabled": bool,          # 是否生效
+            "download_media": bool,   # 是否下载媒体文件
         }
 
     Raises:
@@ -39,7 +42,7 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
     if not csv_path.exists():
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with open(csv_path, "w", encoding="utf-8") as f:
-            f.write("用户id|用户名|抓取开始时间|抓取停止时间|最后抓取时间\n")
+            f.write("用户id|用户名|抓取开始时间|抓取停止时间|最后抓取时间|最后运行时间|是否生效|是否下载媒体文件\n")
         logger.info(f"📄 已创建用户配置文件: {csv_path}")
         return []
 
@@ -49,13 +52,17 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
         reader = csv.DictReader(f, delimiter="|")
 
         # 校验表头
-        expected_fields = ["用户id", "用户名", "抓取开始时间", "抓取停止时间", "最后抓取时间"]
+        expected_fields = ["用户id", "用户名", "抓取开始时间", "抓取停止时间", "最后抓取时间", "最后运行时间", "是否生效", "是否下载媒体文件"]
         actual_fields = reader.fieldnames
         if actual_fields is None:
             raise ValueError("CSV 文件为空或格式错误")
 
         # 去除字段名两端空格
         actual_fields = [f.strip() for f in actual_fields]
+
+        # 自动迁移旧格式
+        _migrate_csv_if_needed(csv_path, actual_fields, expected_fields)
+
         if actual_fields != expected_fields:
             raise ValueError(
                 f"CSV 表头不匹配\n"
@@ -72,6 +79,9 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
             start_date = row.get("抓取开始时间", "")
             end_date = row.get("抓取停止时间", "")
             last_crawl_time = row.get("最后抓取时间", "")
+            last_run_time = row.get("最后运行时间", "")
+            enabled = row.get("是否生效", "是")
+            download_media = row.get("是否下载媒体文件", "是")
 
             # 必填校验
             if not user_id:
@@ -92,6 +102,9 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
                 "start_date": start_date,
                 "end_date": end_date,
                 "last_crawl_time": last_crawl_time or "",
+                "last_run_time": last_run_time or "",
+                "enabled": enabled.strip() == "是",
+                "download_media": download_media.strip() == "是",
             }
             users.append(user)
 
@@ -128,10 +141,37 @@ def validate_user(user: dict) -> bool:
     return True
 
 
+def _migrate_csv_if_needed(
+    csv_path: Path, actual_fields: list[str], expected_fields: list[str]
+) -> None:
+    """自动迁移旧版 CSV 格式，添加缺失列（默认值"是"）"""
+    missing = [f for f in expected_fields if f not in actual_fields]
+    if not missing:
+        return
+
+    logger.info(f"📄 检测到旧版 CSV 格式，自动添加 {len(missing)} 列: {missing}")
+    rows_migrate = []
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
+        old_reader = csv.DictReader(f, delimiter="|")
+        for row in old_reader:
+            row = {k.strip(): v.strip() if v else "" for k, v in row.items()}
+            for col in missing:
+                row[col] = "是"
+            rows_migrate.append(row)
+
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=expected_fields, delimiter="|")
+        writer.writeheader()
+        writer.writerows(rows_migrate)
+
+    actual_fields.clear()
+    actual_fields.extend(expected_fields)
+
+
 def update_last_crawl_time(
     user_id: str, timestamp: str, csv_path: Optional[Path] = None
 ) -> None:
-    """更新指定用户的最后抓取时间
+    """更新指定用户的最后抓取时间（应为最后一条微博的发布时间）
 
     Args:
         user_id: 用户 ID
@@ -155,6 +195,41 @@ def update_last_crawl_time(
             row = {k.strip(): v.strip() if v else "" for k, v in row.items()}
             if row.get("用户id") == user_id:
                 row["最后抓取时间"] = timestamp
+            rows.append(row)
+
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="|")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def update_last_run_time(
+    user_id: str, timestamp: str, csv_path: Optional[Path] = None
+) -> None:
+    """更新指定用户的最后运行时间（当前系统时间）
+
+    Args:
+        user_id: 用户 ID
+        timestamp: 时间字符串（格式 YYYY-MM-DD HH:MM:SS）
+        csv_path: CSV 文件路径，默认使用 settings.USERS_CSV
+    """
+    import csv
+
+    if csv_path is None:
+        csv_path = USERS_CSV
+
+    if not csv_path.exists():
+        logger.warning(f"CSV 文件不存在，无法更新最后运行时间: {csv_path}")
+        return
+
+    rows = []
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f, delimiter="|")
+        fieldnames = reader.fieldnames
+        for row in reader:
+            row = {k.strip(): v.strip() if v else "" for k, v in row.items()}
+            if row.get("用户id") == user_id:
+                row["最后运行时间"] = timestamp
             rows.append(row)
 
     with open(csv_path, "w", encoding="utf-8", newline="") as f:

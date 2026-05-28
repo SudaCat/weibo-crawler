@@ -32,7 +32,7 @@ from config.settings import (
     RESULT_DIR,
     HEADLESS,
 )
-from utils.config_reader import read_users, update_last_crawl_time, validate_user
+from utils.config_reader import read_users, update_last_crawl_time, update_last_run_time, validate_user
 from utils.excel_writer import create_result_workbook, append_result_row, write_results
 from utils.anti_ban import human_like_delay
 from core.browser import BrowserManager
@@ -163,12 +163,21 @@ def main() -> None:
             username = user.get("username", "")
             start_date = user["start_date"]
             end_date = user.get("end_date")  # 可能为 None
+            enabled = user.get("enabled", True)
+            download_media = user.get("download_media", True)
+
+            # 是否生效
+            if not enabled:
+                logger.info(f"⏭ [{idx}/{len(valid_users)}] 跳过未生效用户: {username} ({user_id})")
+                continue
 
             logger.info("─" * 50)
             logger.info(
                 f"📌 [{idx}/{len(valid_users)}] 开始处理用户: {username} ({user_id})"
             )
             logger.info(f"   日期范围: {start_date} ~ {end_date or '最新'}")
+            if not download_media:
+                logger.info(f"   媒体下载: 关（仅爬取内容）")
 
             # 用户之间的人类行为延时
             if idx > 1:
@@ -183,9 +192,10 @@ def main() -> None:
                     append_result_row(ws, result, row_state["idx"])
                     row_state["idx"] += 1
                     wb.save(str(output_path))
-                    update_last_crawl_time(
-                        user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    )
+                    # 最后抓取时间 = 微博发布时间（而非系统时间）
+                    weibo_time = result.get("微博发布时间", "")
+                    if weibo_time:
+                        update_last_crawl_time(user_id, weibo_time)
 
                 crawler = WeiboCrawler(
                     page=page,
@@ -194,10 +204,13 @@ def main() -> None:
                     start_date=start_date,
                     end_date=end_date,
                     cookies=cookies,
+                    download_media=download_media,
                     on_post_processed=on_post,
                 )
                 user_results = crawler.crawl()
                 all_results.extend(user_results)
+                # 最后运行时间 = 系统当前时间
+                update_last_run_time(user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 logger.info(
                     f"✅ 用户 {username} 完成，共 {len(user_results)} 条微博"
                 )

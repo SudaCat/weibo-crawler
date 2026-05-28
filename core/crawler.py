@@ -36,6 +36,7 @@ class WeiboCrawler:
         start_date: str,
         end_date: Optional[str] = None,
         cookies: Optional[list[dict]] = None,
+        download_media: bool = True,
         on_post_processed: Optional[Callable[[dict], None]] = None,
     ):
         self.page = page
@@ -43,6 +44,7 @@ class WeiboCrawler:
         self.username = username
         self.start_date = start_date
         self.end_date = end_date
+        self.download_media = download_media
 
         # 每处理完一条微博后的回调（用于更新最后抓取时间等）
         self.on_post_processed = on_post_processed
@@ -102,6 +104,12 @@ class WeiboCrawler:
             for post in new_posts:
                 wid = post.weibo_id
                 if not wid or wid in processed_ids:
+                    continue
+
+                # 置顶微博跳过（避免其过旧的时间导致提前停止爬取）
+                if post.is_pinned:
+                    logger.info(f"📌 跳过置顶微博: {wid}")
+                    processed_ids.add(wid)
                     continue
 
                 # --- 时间范围判断 ---
@@ -173,17 +181,18 @@ class WeiboCrawler:
 
         # 3. 下载媒体
         download_result = {"images": 0, "live_photos": 0, "videos": 0}
-        try:
-            download_result = self.downloader.download_weibo_media(
-                weibo_id=post.weibo_id,
-                weibo_time=time_formatted,
-                content=content,
-                image_urls=post.image_urls,
-                live_photo_pairs=post.live_photo_pairs,
-                video_urls=post.video_urls,
-            )
-        except Exception as e:
-            logger.error(f"❌ 媒体下载失败（微博 {post.weibo_id}）: {e}")
+        if self.download_media:
+            try:
+                download_result = self.downloader.download_weibo_media(
+                    weibo_id=post.weibo_id,
+                    weibo_time=time_formatted,
+                    content=content,
+                    image_urls=post.image_urls,
+                    live_photo_pairs=post.live_photo_pairs,
+                    video_urls=post.video_urls,
+                )
+            except Exception as e:
+                logger.error(f"❌ 媒体下载失败（微博 {post.weibo_id}）: {e}")
 
         # 4. 微博类型
         weibo_type = post.weibo_type

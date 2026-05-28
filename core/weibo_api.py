@@ -43,6 +43,7 @@ class WeiboPost:
     is_retweet: bool = False                # 是否转发
     is_ad: bool = False                     # 是否广告
     is_long_text: bool = False              # 是否长文
+    is_pinned: bool = False                 # 是否置顶
     has_video: bool = False                 # 是否有视频
     has_live_photo: bool = False            # 是否有 Live 图
 
@@ -165,6 +166,7 @@ class WeiboAPIClient:
         is_retweet = "retweeted_status" in item and bool(item.get("retweeted_status"))
         is_ad = item.get("isAd", False)
         is_long_text = item.get("isLongText", False)
+        is_pinned = item.get("isTop", 0) == 1 or item.get("mblogtype", 0) != 0
 
         # --- 话题 ---
         topics = [
@@ -191,6 +193,7 @@ class WeiboAPIClient:
             is_retweet=is_retweet,
             is_ad=is_ad,
             is_long_text=is_long_text,
+            is_pinned=is_pinned,
             has_video=has_video,
             has_live_photo=has_live_photo,
             topics=topics,
