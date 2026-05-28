@@ -188,14 +188,18 @@ def main() -> None:
 
             try:
                 # 逐条写入回调（闭包捕获 user_id/ws/row_state/output_path）
+                first_post_flag = [True]  # 用列表实现闭包可变引用
+
                 def on_post(result: dict) -> None:
                     append_result_row(ws, result, row_state["idx"])
                     row_state["idx"] += 1
                     wb.save(str(output_path))
-                    # 最后抓取时间 = 微博发布时间（而非系统时间）
-                    weibo_time = result.get("微博发布时间", "")
-                    if weibo_time:
-                        update_last_crawl_time(user_id, weibo_time)
+                    # 最后抓取时间 = 第一条（最新）微博的发布时间
+                    if first_post_flag[0]:
+                        first_post_flag[0] = False
+                        weibo_time = result.get("微博发布时间", "")
+                        if weibo_time:
+                            update_last_crawl_time(user_id, weibo_time)
 
                 crawler = WeiboCrawler(
                     page=page,
