@@ -6,7 +6,7 @@
 
 import re
 import time as time_module
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from loguru import logger
@@ -103,8 +103,7 @@ class WeiboCrawler:
     # 搜索接口分页获取
     # ================================================================
     def _search_and_collect(self) -> None:
-        """通过搜索接口按时间范围分页获取微博"""
-        from datetime import datetime as dt
+        """通过搜索接口按时间范围分页获取微博（超过一个月则按月拆分）"""
 
         SEARCH_URL = (
             "https://weibo.com/ajax/statuses/searchProfile"
@@ -112,100 +111,133 @@ class WeiboCrawler:
             "&hasori=1&hasret=1&hastext=1&haspic=1&hasvideo=1&hasmusic=1"
         )
 
-        # 转换为 Unix 时间戳
-        start_dt = dt.strptime(self.start_date, "%Y-%m-%d %H:%M:%S")
-        start_ts = int(start_dt.timestamp())
+        # 解析时间范围
+        start_dt = datetime.strptime(self.start_date, "%Y-%m-%d %H:%M:%S")
         if self.end_date:
-            end_dt = dt.strptime(self.end_date, "%Y-%m-%d %H:%M:%S")
-            end_ts = int(end_dt.timestamp())
+            end_dt = datetime.strptime(self.end_date, "%Y-%m-%d %H:%M:%S")
         else:
-            end_ts = int(dt.now().timestamp())
+            end_dt = datetime.now()
 
-        # 先导航到用户主页建立浏览器上下文（Cookie / XSRF / Referer）
+        # 按自然月拆分
+        segments = self._split_by_month(start_dt, end_dt)
+        logger.info(f"📅 时间范围拆分为 {len(segments)} 个月段")
+
+        # 导航到用户主页建立浏览器上下文（仅一次）
         homepage_url = WEIBO_USER_PAGE.format(user_id=self.user_id)
         self.page.goto(homepage_url, wait_until="domcontentloaded")
         self.page.wait_for_timeout(3_000)
         self.api_client.get_intercepted_posts(clear=True)
 
         processed_ids: set[str] = set()
-        cur_page = 1
 
-        while True:
-            url = SEARCH_URL.format(
-                uid=self.user_id, page=cur_page, start_ts=start_ts, end_ts=end_ts
+        for seg_idx, (seg_start, seg_end) in enumerate(segments, start=1):
+            start_ts = int(seg_start.timestamp())
+            end_ts = int(seg_end.timestamp())
+
+            logger.info(
+                f"📅 [{seg_idx}/{len(segments)}] "
+                f"{seg_start.strftime('%Y-%m-%d')} ~ {seg_end.strftime('%Y-%m-%d')}"
             )
-            logger.info(f"🔍 搜索第 {cur_page} 页")
 
-            # 在页面上下文中执行 fetch（自动携带 Cookie / XSRF / Referer）
-            raw_data = self.page.evaluate("""
-                async (url) => {
-                    const resp = await fetch(url);
-                    return await resp.json();
-                }
-            """, url)
+            cur_page = 1
+            while True:
+                url = SEARCH_URL.format(
+                    uid=self.user_id, page=cur_page,
+                    start_ts=start_ts, end_ts=end_ts,
+                )
+                logger.info(f"🔍 搜索第 {cur_page} 页")
 
-            if not isinstance(raw_data, dict) or raw_data.get("ok") != 1:
-                logger.warning(f"⚠️ 搜索接口返回异常: {str(raw_data)[:200]}")
-                break
+                raw_data = self.page.evaluate("""
+                    async (url) => {
+                        const resp = await fetch(url);
+                        return await resp.json();
+                    }
+                """, url)
 
-            new_posts = self.api_client._parse_response(raw_data)
+                if not isinstance(raw_data, dict) or raw_data.get("ok") != 1:
+                    logger.warning(f"⚠️ 搜索接口返回异常: {str(raw_data)[:200]}")
+                    break
 
-            if not new_posts:
-                logger.info("⏹ 搜索无更多结果，停止")
-                break
+                new_posts = self.api_client._parse_response(raw_data)
 
-            new_processed = 0
-            for post in new_posts:
-                wid = post.weibo_id
-                if not wid or wid in processed_ids:
-                    continue
+                if not new_posts:
+                    logger.info("⏹ 搜索无更多结果，停止")
+                    break
 
-                # 置顶微博跳过
-                if post.is_pinned:
-                    logger.info(f"📌 跳过置顶微博: {wid}")
-                    processed_ids.add(wid)
-                    continue
+                new_processed = 0
+                for post in new_posts:
+                    wid = post.weibo_id
+                    if not wid or wid in processed_ids:
+                        continue
 
-                # 评论/赞过等非本人发布微博跳过
-                if post.is_comment:
-                    logger.info(f"💬 跳过非本人发布微博: {wid}")
-                    processed_ids.add(wid)
-                    continue
-
-                # 时间范围双重校验
-                weibo_dt = post.created_at_dt
-                if weibo_dt is None:
-                    logger.warning(f"⚠️ 微博 {wid} 时间解析失败，跳过")
-                    processed_ids.add(wid)
-                    continue
-
-                if not is_in_range(weibo_dt, self.start_date, self.end_date):
-                    if is_before_start(weibo_dt, self.start_date):
-                        logger.info(f"⏹ 微博时间 {weibo_dt} 早于 {self.start_date}，停止")
-                        return
-                    else:
-                        logger.info(f"⏭ 微博 {wid} ({weibo_dt}) 超出时间范围，跳过")
+                    if post.is_pinned:
+                        logger.info(f"📌 跳过置顶微博: {wid}")
                         processed_ids.add(wid)
                         continue
 
-                # 处理单条
-                random_delay(reason="处理下一条微博")
-                result = self._process_single_post(post)
-                self.results.append(result)
-                processed_ids.add(wid)
-                new_processed += 1
+                    if post.is_comment:
+                        logger.info(f"💬 跳过非本人发布微博: {wid}")
+                        processed_ids.add(wid)
+                        continue
 
-                if self.on_post_processed:
-                    self.on_post_processed(result)
+                    weibo_dt = post.created_at_dt
+                    if weibo_dt is None:
+                        logger.warning(f"⚠️ 微博 {wid} 时间解析失败，跳过")
+                        processed_ids.add(wid)
+                        continue
 
-                if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
-                    logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
-                    return
+                    if not is_in_range(weibo_dt, self.start_date, self.end_date):
+                        if is_before_start(weibo_dt, self.start_date):
+                            logger.info(
+                                f"⏹ 微博时间 {weibo_dt} 早于 {self.start_date}，停止"
+                            )
+                            return
+                        else:
+                            logger.info(
+                                f"⏭ 微博 {wid} ({weibo_dt}) 超出时间范围，跳过"
+                            )
+                            processed_ids.add(wid)
+                            continue
 
-            cur_page += 1
-            if cur_page > 50:
-                logger.warning("⚠️ 已搜索 50 页，停止以避免无限循环")
-                break
+                    random_delay(reason="处理下一条微博")
+                    result = self._process_single_post(post)
+                    self.results.append(result)
+                    processed_ids.add(wid)
+                    new_processed += 1
+
+                    if self.on_post_processed:
+                        self.on_post_processed(result)
+
+                    if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
+                        logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
+                        return
+
+                cur_page += 1
+                if cur_page > 50:
+                    logger.warning("⚠️ 已搜索 50 页，停止以避免无限循环")
+                    break
+
+    @staticmethod
+    def _split_by_month(start_dt: datetime, end_dt: datetime) -> list[tuple[datetime, datetime]]:
+        """将时间范围按自然月拆分"""
+        segments = []
+        current = start_dt
+        while current < end_dt:
+            if current.month == 12:
+                next_month = current.replace(
+                    year=current.year + 1, month=1, day=1,
+                    hour=0, minute=0, second=0,
+                )
+            else:
+                next_month = current.replace(
+                    month=current.month + 1, day=1,
+                    hour=0, minute=0, second=0,
+                )
+            month_end = next_month - timedelta(seconds=1)
+            seg_end = min(month_end, end_dt)
+            segments.append((current, seg_end))
+            current = next_month
+        return segments
 
     # ================================================================
     # 滚动加载 + 逐条处理
