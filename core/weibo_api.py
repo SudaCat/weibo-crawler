@@ -269,43 +269,62 @@ class WeiboAPIClient:
             return [], False
 
         page_type = str(page_info.get("type", ""))
+        object_type = page_info.get("object_type", "")
 
-        # type=11 是视频
-        if page_type == "11":
+        # type=5（新API）或 type=11（旧API）都是视频，object_type="video" 兜底
+        if page_type in ("5", "11") or object_type == "video":
             media_info = page_info.get("media_info", {})
+
+            # 优先 playback_list（两种类型都可能存在）
             playback_list = media_info.get("playback_list", [])
             if playback_list:
-                # 选最高清晰度
                 video_urls = self._pick_best_video_urls(playback_list)
-                return video_urls, bool(video_urls)
+                if video_urls:
+                    return video_urls, True
 
-            # 部分情况下 URL 直接在 page_info 中
+            # type=5 备用：直接取媒体 URL（按清晰度降序）
+            for key in ("mp4_720p_mp4", "mp4_hd_url", "mp4_sd_url",
+                        "stream_url_hd", "stream_url"):
+                url = media_info.get(key, "")
+                if url:
+                    return [url], True
+
+            # type=11 备用：URL 直接在 page_info 中
             mp4_url = page_info.get("mp4_url", "") or page_info.get("url", "")
             if mp4_url:
                 return [mp4_url], True
 
-        # type=0 是音频/歌曲，暂不处理
         return [], False
 
     def _pick_best_video_urls(self, playback_list: list[dict]) -> list[str]:
         """
         从播放列表中选择最佳质量的视频 URL
 
-        质量排序：hd > sd > 其他
+        支持两种格式：
+        - 新 API (type=5): url 在 play_info 中，label 在 meta 中
+        - 旧 API (type=11): url 和 quality 在顶层
+
+        质量排序（降序）：4K > 1080p > 720p > hd > 480p > sd > 其他
         """
         urls_by_quality = {}
         for item in playback_list:
-            quality = item.get("quality", "unknown")
-            url = item.get("url", "")
-            if url:
-                urls_by_quality[quality] = url
+            play_info = item.get("play_info", {})
+            if play_info and play_info.get("url"):
+                # type=5 嵌套格式
+                label = play_info.get("label", "unknown")
+                urls_by_quality[label] = play_info["url"]
+            else:
+                # type=11 平铺格式
+                quality = item.get("quality", "unknown")
+                url = item.get("url", "")
+                if url:
+                    urls_by_quality[quality] = url
 
-        # 优先 hd
-        for pref in ("hd", "sd"):
+        for pref in ("mp4_4K", "mp4_2160p", "mp4_uhd", "uhd",
+                     "mp4_1080p", "mp4_720p", "hd", "mp4_hd", "sd", "mp4_sd"):
             if pref in urls_by_quality:
                 return [urls_by_quality[pref]]
 
-        # 兜底：返回第一个
         if urls_by_quality:
             return [list(urls_by_quality.values())[0]]
 
