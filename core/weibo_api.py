@@ -170,7 +170,7 @@ class WeiboAPIClient:
         is_retweet = "retweeted_status" in item and bool(item.get("retweeted_status"))
         is_ad = item.get("isAd", False)
         is_long_text = item.get("isLongText", False)
-        is_pinned = item.get("isTop", 0) == 1 or item.get("mblogtype", 0) != 0
+        is_pinned = item.get("isTop", 0) == 1
 
         # 评论/赞过等非本人发布微博：analysis_extra 含 profile_insert_type
         analysis_extra = item.get("analysis_extra", "")
