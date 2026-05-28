@@ -115,19 +115,34 @@ class WeiboCrawler:
         else:
             end_ts = int(dt.now().timestamp())
 
+        # 先导航到用户主页建立浏览器上下文（Cookie / XSRF / Referer）
+        homepage_url = WEIBO_USER_PAGE.format(user_id=self.user_id)
+        self.page.goto(homepage_url, wait_until="domcontentloaded")
+        self.page.wait_for_timeout(3_000)
+        self.api_client.get_intercepted_posts(clear=True)
+
         processed_ids: set[str] = set()
-        page = 1
+        cur_page = 1
 
         while True:
             url = SEARCH_URL.format(
-                uid=self.user_id, page=page, start_ts=start_ts, end_ts=end_ts
+                uid=self.user_id, page=cur_page, start_ts=start_ts, end_ts=end_ts
             )
-            logger.info(f"🔍 搜索第 {page} 页")
+            logger.info(f"🔍 搜索第 {cur_page} 页")
 
-            self.page.goto(url, wait_until="domcontentloaded")
-            self.page.wait_for_timeout(2_000)
+            # 在页面上下文中执行 fetch（自动携带 Cookie / XSRF / Referer）
+            raw_data = self.page.evaluate("""
+                async (url) => {
+                    const resp = await fetch(url);
+                    return await resp.json();
+                }
+            """, url)
 
-            new_posts = self.api_client.get_intercepted_posts(clear=True)
+            if not isinstance(raw_data, dict) or raw_data.get("ok") != 1:
+                logger.warning(f"⚠️ 搜索接口返回异常: {str(raw_data)[:200]}")
+                break
+
+            new_posts = self.api_client._parse_response(raw_data)
 
             if not new_posts:
                 logger.info("⏹ 搜索无更多结果，停止")
@@ -181,8 +196,8 @@ class WeiboCrawler:
                     logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
                     return
 
-            page += 1
-            if page > 50:
+            cur_page += 1
+            if cur_page > 50:
                 logger.warning("⚠️ 已搜索 50 页，停止以避免无限循环")
                 break
 
