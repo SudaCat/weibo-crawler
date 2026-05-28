@@ -133,7 +133,7 @@ class WeiboCrawler:
                         )
                         return
                     else:
-                        logger.debug(f"⏭ 微博 {wid} ({weibo_dt}) 超出时间范围，跳过")
+                        logger.info(f"⏭ 微博 {wid} ({weibo_dt}) 超出时间范围，跳过")
                         processed_ids.add(wid)
                         continue
 
@@ -152,8 +152,8 @@ class WeiboCrawler:
                     logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
                     return
 
-            # --- 停止判断 ---
-            if new_processed == 0:
+            # --- 停止判断（MAX_SCROLL_NO_NEW <= 0 时禁用）---
+            if new_processed == 0 and MAX_SCROLL_NO_NEW > 0:
                 no_new_count += 1
                 if no_new_count >= MAX_SCROLL_NO_NEW:
                     logger.info("⏹ 连续多次无新内容，停止滚动")
