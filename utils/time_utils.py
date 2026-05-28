@@ -147,12 +147,14 @@ def is_in_range(
     end: Optional[Union[str, datetime]] = None
 ) -> bool:
     """
-    判断微博时间是否在 [start, end] 范围内（含边界）
+    判断微博时间是否在 (start, end] 范围内（start 不含边界，end 含边界）
+
+    start 使用严格大于（>）避免 resume 爬取时重复抓取最后一条已记录的微博。
 
     Args:
         weibo_time: 微博发布时间
-        start: 配置的开始日期
-        end: 配置的结束日期，None 表示无上限（仅检查 >= start）
+        start: 配置的开始日期（不包含该时刻）
+        end: 配置的结束日期，None 表示无上限（仅检查 > start）
 
     Returns:
         True 表示在范围内
@@ -187,13 +189,13 @@ def is_in_range(
         weibo_dt = weibo_dt.replace(tzinfo=None)
 
     if end_dt is None:
-        return start_dt <= weibo_dt
+        return start_dt < weibo_dt
 
     # end 只给到日期的话，补全到当天 23:59:59
     if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
         end_dt = end_dt.replace(hour=23, minute=59, second=59)
 
-    return start_dt <= weibo_dt <= end_dt
+    return start_dt < weibo_dt <= end_dt
 
 
 def is_before_start(
