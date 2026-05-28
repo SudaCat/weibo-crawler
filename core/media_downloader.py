@@ -1,7 +1,7 @@
 """
 媒体下载模块
 下载微博图片、Live 图、视频
-目录结构：用户id / 发布时间_微博id_文案(前50字) / 同前缀_序号.后缀
+目录结构：{用户id}_{用户名} / 发布时间_微博id_文案(前50字) / 同前缀_序号.后缀
 Live 图静态与动态保持相同序号不同后缀，便于检索
 """
 
@@ -30,11 +30,13 @@ class MediaDownloader:
     def __init__(
         self,
         user_id: str,
+        username: str = "",
         cookies: Optional[list[dict]] = None,
         headers: Optional[dict] = None,
     ):
         self.user_id = user_id
-        self.base_dir = DOWNLOAD_DIR / user_id
+        dir_name = f"{user_id}_{username}" if username else user_id
+        self.base_dir = DOWNLOAD_DIR / dir_name
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
         self.headers = {

@@ -53,7 +53,7 @@ class WeiboCrawler:
         self.api_client: Optional[WeiboAPIClient] = None
 
         # 下载
-        self.downloader = MediaDownloader(user_id=user_id, cookies=cookies)
+        self.downloader = MediaDownloader(user_id=user_id, username=username, cookies=cookies)
 
         self.results: list[dict] = []
 
