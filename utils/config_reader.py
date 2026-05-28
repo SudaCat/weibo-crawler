@@ -42,14 +42,14 @@ def read_users(csv_path: Optional[Path] = None) -> list[dict]:
     if not csv_path.exists():
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         with open(csv_path, "w", encoding="utf-8") as f:
-            f.write("用户id|用户名|抓取开始时间|抓取停止时间|最后抓取时间|最后运行时间|是否生效|是否下载媒体文件\n")
+            f.write("用户id,用户名,抓取开始时间,抓取停止时间,最后抓取时间,最后运行时间,是否生效,是否下载媒体文件\n")
         logger.info(f"📄 已创建用户配置文件: {csv_path}")
         return []
 
     users = []
 
     with open(csv_path, "r", encoding="utf-8-sig") as f:  # utf-8-sig 自动去除 BOM
-        reader = csv.DictReader(f, delimiter="|")
+        reader = csv.DictReader(f, delimiter=",")
 
         # 校验表头
         expected_fields = ["用户id", "用户名", "抓取开始时间", "抓取停止时间", "最后抓取时间", "最后运行时间", "是否生效", "是否下载媒体文件"]
@@ -152,7 +152,7 @@ def _migrate_csv_if_needed(
     logger.info(f"📄 检测到旧版 CSV 格式，自动添加 {len(missing)} 列: {missing}")
     rows_migrate = []
     with open(csv_path, "r", encoding="utf-8-sig") as f:
-        old_reader = csv.DictReader(f, delimiter="|")
+        old_reader = csv.DictReader(f, delimiter=",")
         for row in old_reader:
             row = {k.strip(): v.strip() if v else "" for k, v in row.items()}
             for col in missing:
@@ -160,7 +160,7 @@ def _migrate_csv_if_needed(
             rows_migrate.append(row)
 
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=expected_fields, delimiter="|")
+        writer = csv.DictWriter(f, fieldnames=expected_fields, delimiter=",")
         writer.writeheader()
         writer.writerows(rows_migrate)
 
@@ -189,7 +189,7 @@ def update_last_crawl_time(
 
     rows = []
     with open(csv_path, "r", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f, delimiter="|")
+        reader = csv.DictReader(f, delimiter=",")
         fieldnames = reader.fieldnames
         for row in reader:
             row = {k.strip(): v.strip() if v else "" for k, v in row.items()}
@@ -198,7 +198,7 @@ def update_last_crawl_time(
             rows.append(row)
 
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="|")
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=",")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -224,7 +224,7 @@ def update_last_run_time(
 
     rows = []
     with open(csv_path, "r", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f, delimiter="|")
+        reader = csv.DictReader(f, delimiter=",")
         fieldnames = reader.fieldnames
         for row in reader:
             row = {k.strip(): v.strip() if v else "" for k, v in row.items()}
@@ -233,6 +233,6 @@ def update_last_run_time(
             rows.append(row)
 
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter="|")
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=",")
         writer.writeheader()
         writer.writerows(rows)
