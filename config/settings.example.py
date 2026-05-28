@@ -48,7 +48,7 @@ WEIBO_SEARCH = "https://s.weibo.com/weibo?q=@{username}&typeall=1&suball=1&times
 # ============================================================
 # 浏览器配置
 # ============================================================
-HEADLESS = False                        # 是否无头模式（调试时建议 False）
+HEADLESS = True                         # 是否无头模式（调试时建议 False）
 VIEWPORT_WIDTH = 1920                   # 视口宽度
 VIEWPORT_HEIGHT = 1080                  # 视口高度
 PAGE_TIMEOUT = 30_000                   # 页面加载超时（毫秒）

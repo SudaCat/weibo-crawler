@@ -141,11 +141,17 @@ def main() -> None:
         cookies_ok = cm.is_cookie_valid()
 
         if not cookies_ok:
+            # 无头模式下需要切回有头模式，用户才能看到登录二维码
+            if HEADLESS:
+                bm.restart(headless=False)
             try:
                 cm.ensure_valid_cookie()
             except RuntimeError as e:
                 logger.error(f"❌ 登录失败: {e}")
                 return
+            # 登录成功后切回无头模式继续爬取
+            if HEADLESS:
+                bm.restart(headless=True)
 
         # 获取 Cookie 列表（供下载器使用）
         cookies = bm.context.cookies()
