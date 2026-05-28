@@ -161,7 +161,10 @@ class WeiboAPIClient:
         )
 
         # --- 视频 ---
-        video_urls, has_video = self._parse_page_info(item.get("page_info", {}))
+        page_videos, has_page_video = self._parse_page_info(item.get("page_info", {}))
+        mix_videos, has_mix_video = self._parse_mix_media_info(item.get("mix_media_info", {}))
+        video_urls = page_videos + mix_videos
+        has_video = has_page_video or has_mix_video
 
         # --- 标志 ---
         is_retweet = "retweeted_status" in item and bool(item.get("retweeted_status"))
@@ -304,6 +307,34 @@ class WeiboAPIClient:
                 return [mp4_url], True
 
         return [], False
+
+    def _parse_mix_media_info(self, mix_media_info: Optional[dict]) -> tuple[list[str], bool]:
+        """
+        解析 mix_media_info 中的多视频信息（多视频微博）
+
+        mix_media_info.items[].data 结构与 page_info 一致，直接复用 _parse_page_info
+        """
+        if not mix_media_info or not isinstance(mix_media_info, dict):
+            return [], False
+
+        items = mix_media_info.get("items", [])
+        if not items:
+            return [], False
+
+        all_urls = []
+        has_any_video = False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "video":
+                continue
+            data = item.get("data", {})
+            urls, _ = self._parse_page_info(data)
+            if urls:
+                all_urls.extend(urls)
+                has_any_video = True
+
+        return all_urls, has_any_video
 
     def _pick_best_video_urls(self, playback_list: list[dict]) -> list[str]:
         """
