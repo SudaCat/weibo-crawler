@@ -68,7 +68,7 @@ class WeiboAPIClient:
     """
 
     # 微博列表 API URL 模式
-    LIST_API_PATTERN = re.compile(r"/ajax/statuses/(mymblog|searchBlogsByNick|userBlogs)")
+    LIST_API_PATTERN = re.compile(r"/ajax/statuses/(mymblog|searchBlogsByNick|userBlogs|searchProfile)")
 
     # 时间格式（API 返回）
     TIME_FORMAT = "%a %b %d %H:%M:%S %z %Y"  # "Thu May 21 17:39:36 +0800 2026"

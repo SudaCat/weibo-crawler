@@ -72,17 +72,119 @@ class WeiboCrawler:
             self.api_client = None
             logger.info("📄 使用 DOM 解析模式（API 已禁用）")
 
-        # 再导航到用户主页
+        # 优先使用搜索接口（按时间范围筛选），失败时回退滚动
+        if self.api_client:
+            try:
+                self._search_and_collect()
+            except Exception as e:
+                logger.warning(f"⚠️ 搜索接口异常，回退到滚动模式: {e}")
+                self._fallback_scroll()
+        else:
+            self._fallback_scroll()
+
+        logger.info(f"✅ 用户 {self.username} 爬取完成，共 {len(self.results)} 条微博")
+        return self.results
+
+    def _fallback_scroll(self) -> None:
+        """回退：导航到用户主页并滚动加载"""
         homepage_url = WEIBO_USER_PAGE.format(user_id=self.user_id)
         self.page.goto(homepage_url, wait_until="domcontentloaded")
         self.page.wait_for_load_state("networkidle")
         self.page.wait_for_timeout(3_000)
-
-        # 滚动加载并收集
         self._scroll_and_collect()
 
-        logger.info(f"✅ 用户 {self.username} 爬取完成，共 {len(self.results)} 条微博")
-        return self.results
+    # ================================================================
+    # 搜索接口分页获取
+    # ================================================================
+    def _search_and_collect(self) -> None:
+        """通过搜索接口按时间范围分页获取微博"""
+        from datetime import datetime as dt
+
+        SEARCH_URL = (
+            "https://weibo.com/ajax/statuses/searchProfile"
+            "?uid={uid}&page={page}&starttime={start_ts}&endtime={end_ts}"
+            "&hasori=1&hasret=1&hastext=1&haspic=1&hasvideo=1&hasmusic=1"
+        )
+
+        # 转换为 Unix 时间戳
+        start_dt = dt.strptime(self.start_date, "%Y-%m-%d %H:%M:%S")
+        start_ts = int(start_dt.timestamp())
+        if self.end_date:
+            end_dt = dt.strptime(self.end_date, "%Y-%m-%d %H:%M:%S")
+            end_ts = int(end_dt.timestamp())
+        else:
+            end_ts = int(dt.now().timestamp())
+
+        processed_ids: set[str] = set()
+        page = 1
+
+        while True:
+            url = SEARCH_URL.format(
+                uid=self.user_id, page=page, start_ts=start_ts, end_ts=end_ts
+            )
+            logger.info(f"🔍 搜索第 {page} 页")
+
+            self.page.goto(url, wait_until="domcontentloaded")
+            self.page.wait_for_timeout(2_000)
+
+            new_posts = self.api_client.get_intercepted_posts(clear=True)
+
+            if not new_posts:
+                logger.info("⏹ 搜索无更多结果，停止")
+                break
+
+            new_processed = 0
+            for post in new_posts:
+                wid = post.weibo_id
+                if not wid or wid in processed_ids:
+                    continue
+
+                # 置顶微博跳过
+                if post.is_pinned:
+                    logger.info(f"📌 跳过置顶微博: {wid}")
+                    processed_ids.add(wid)
+                    continue
+
+                # 评论/赞过等非本人发布微博跳过
+                if post.is_comment:
+                    logger.info(f"💬 跳过非本人发布微博: {wid}")
+                    processed_ids.add(wid)
+                    continue
+
+                # 时间范围双重校验
+                weibo_dt = post.created_at_dt
+                if weibo_dt is None:
+                    logger.warning(f"⚠️ 微博 {wid} 时间解析失败，跳过")
+                    processed_ids.add(wid)
+                    continue
+
+                if not is_in_range(weibo_dt, self.start_date, self.end_date):
+                    if is_before_start(weibo_dt, self.start_date):
+                        logger.info(f"⏹ 微博时间 {weibo_dt} 早于 {self.start_date}，停止")
+                        return
+                    else:
+                        logger.info(f"⏭ 微博 {wid} ({weibo_dt}) 超出时间范围，跳过")
+                        processed_ids.add(wid)
+                        continue
+
+                # 处理单条
+                random_delay(reason="处理下一条微博")
+                result = self._process_single_post(post)
+                self.results.append(result)
+                processed_ids.add(wid)
+                new_processed += 1
+
+                if self.on_post_processed:
+                    self.on_post_processed(result)
+
+                if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
+                    logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
+                    return
+
+            page += 1
+            if page > 50:
+                logger.warning("⚠️ 已搜索 50 页，停止以避免无限循环")
+                break
 
     # ================================================================
     # 滚动加载 + 逐条处理
