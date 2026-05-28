@@ -5,6 +5,7 @@
 """
 
 import re
+import time as time_module
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -16,6 +17,7 @@ from config.settings import (
     SCROLL_WAIT,
     MAX_SCROLL_NO_NEW,
     MAX_WEIBO_COUNT,
+    SEARCH_RETRY_MAX,
     USE_API_DATA_SOURCE,
     API_FALLBACK_TO_DOM,
 )
@@ -72,26 +74,30 @@ class WeiboCrawler:
             self.api_client = None
             logger.info("📄 使用 DOM 解析模式（API 已禁用）")
 
-        # 优先使用搜索接口（按时间范围筛选），失败时回退滚动
-        if self.api_client:
+        if not self.api_client:
+            raise RuntimeError("API 数据源未启用，无法爬取")
+
+        last_error = None
+        for attempt in range(1, SEARCH_RETRY_MAX + 1):
             try:
                 self._search_and_collect()
+                break
             except Exception as e:
-                logger.warning(f"⚠️ 搜索接口异常，回退到滚动模式: {e}")
-                self._fallback_scroll()
+                last_error = e
+                if attempt < SEARCH_RETRY_MAX:
+                    wait_s = attempt * 3
+                    logger.warning(
+                        f"⚠️ 搜索接口异常（第 {attempt}/{SEARCH_RETRY_MAX} 次）: {e}，"
+                        f"{wait_s}s 后重试..."
+                    )
+                    time_module.sleep(wait_s)
         else:
-            self._fallback_scroll()
+            raise RuntimeError(
+                f"搜索接口重试 {SEARCH_RETRY_MAX} 次后仍失败: {last_error}"
+            )
 
         logger.info(f"✅ 用户 {self.username} 爬取完成，共 {len(self.results)} 条微博")
         return self.results
-
-    def _fallback_scroll(self) -> None:
-        """回退：导航到用户主页并滚动加载"""
-        homepage_url = WEIBO_USER_PAGE.format(user_id=self.user_id)
-        self.page.goto(homepage_url, wait_until="domcontentloaded")
-        self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(3_000)
-        self._scroll_and_collect()
 
     # ================================================================
     # 搜索接口分页获取

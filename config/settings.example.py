@@ -90,6 +90,7 @@ COOKIE_REDIRECT_KEYWORD = "passport.weibo.com"  # 被重定向到登录页的 UR
 SCROLL_WAIT = 2000                      # 每次滚动后等待时间（毫秒）
 MAX_SCROLL_NO_NEW = 3                   # 连续无新内容滚动的最大次数，之后停止
 MAX_WEIBO_COUNT = 0                     # 单用户最大爬取条数，0 = 不限制
+SEARCH_RETRY_MAX = 3                    # 搜索接口最大重试次数
 
 # ============================================================
 # 防封禁 - 随机延时（秒）
