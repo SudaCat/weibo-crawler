@@ -171,7 +171,10 @@ def _migrate_csv_if_needed(
 def update_last_crawl_time(
     user_id: str, timestamp: str, csv_path: Optional[Path] = None
 ) -> None:
-    """更新指定用户的最后抓取时间（应为最后一条微博的发布时间）
+    """更新指定用户的最后抓取时间
+
+    仅当新时间晚于已记录时间时才更新，确保 last_crawl_time 始终保存
+    已抓取微博中最新的发布时间，避免爬取更早时间段时覆盖为更旧的时间。
 
     Args:
         user_id: 用户 ID
@@ -187,6 +190,12 @@ def update_last_crawl_time(
         logger.warning(f"CSV 文件不存在，无法更新最后抓取时间: {csv_path}")
         return
 
+    new_dt = parse_date(timestamp)
+    if new_dt is None:
+        logger.warning(f"无法解析时间戳 '{timestamp}'，跳过更新最后抓取时间")
+        return
+
+    updated = False
     rows = []
     with open(csv_path, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f, delimiter=",")
@@ -194,13 +203,30 @@ def update_last_crawl_time(
         for row in reader:
             row = {k.strip(): v.strip() if v else "" for k, v in row.items()}
             if row.get("用户id") == user_id:
+                existing = row.get("最后抓取时间", "")
+                if existing:
+                    existing_dt = parse_date(existing)
+                    if existing_dt is not None and existing_dt >= new_dt:
+                        logger.debug(
+                            f"最后抓取时间已是最新 ({existing})，"
+                            f"无需更新为更早时间 ({timestamp})"
+                        )
+                        rows.append(row)
+                        continue
                 row["最后抓取时间"] = timestamp
+                updated = True
             rows.append(row)
+
+    if not updated:
+        logger.debug(f"用户 {user_id} 的最后抓取时间未更新（未找到该用户或时间未变新）")
+        return
 
     with open(csv_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=",")
         writer.writeheader()
         writer.writerows(rows)
+
+    logger.info(f"用户 {user_id} 的最后抓取时间已更新为 {timestamp}")
 
 
 def update_last_run_time(
