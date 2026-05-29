@@ -279,7 +279,7 @@ class WeiboCrawler:
     # 滚动辅助
     # ================================================================
     def _scroll_down(self) -> None:
-        human_like_delay(0.3, 0.8)
+        human_like_delay(1.5, 2.5)
         current_scroll = self.page.evaluate("window.scrollY")
         view_height = self.page.evaluate("window.innerHeight")
         page_height = self.page.evaluate("document.body.scrollHeight")

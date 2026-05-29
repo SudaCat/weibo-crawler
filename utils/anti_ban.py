@@ -55,7 +55,8 @@ def human_like_delay(min_sec: float = 3.0, max_sec: float = 8.0) -> float:
         if segment > 0:
             time.sleep(segment)
             remaining -= segment
-    time.sleep(round(remaining, 2))
+    if remaining > 0:
+        time.sleep(round(remaining, 2))
 
     logger.info(f"⏳ 人类模拟延时完成，共 {total_delay}s")
     return total_delay
