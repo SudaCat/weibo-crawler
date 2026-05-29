@@ -18,6 +18,7 @@ from config.settings import (
     MAX_SCROLL_NO_NEW,
     MAX_WEIBO_COUNT,
     SEARCH_RETRY_MAX,
+    POST_RETRY_MAX,
     USE_API_DATA_SOURCE,
     API_FALLBACK_TO_DOM,
 )
@@ -58,6 +59,8 @@ class WeiboCrawler:
         self.downloader = MediaDownloader(user_id=user_id, username=username, cookies=cookies)
 
         self.results: list[dict] = []
+        self._processed_ids: set[str] = set()  # 跨重试去重
+        self._post_retry_max = POST_RETRY_MAX
 
     # ================================================================
     # 主入口
@@ -128,8 +131,6 @@ class WeiboCrawler:
         self.page.wait_for_timeout(3_000)
         self.api_client.get_intercepted_posts(clear=True)
 
-        processed_ids: set[str] = set()
-
         for seg_idx, (seg_start, seg_end) in enumerate(segments, start=1):
             start_ts = int(seg_start.timestamp())
             end_ts = int(seg_end.timestamp())
@@ -167,23 +168,23 @@ class WeiboCrawler:
                 new_processed = 0
                 for post in new_posts:
                     wid = post.weibo_id
-                    if not wid or wid in processed_ids:
+                    if not wid or wid in self._processed_ids:
                         continue
 
                     if post.is_pinned:
                         logger.info(f"📌 跳过置顶微博: {wid}")
-                        processed_ids.add(wid)
+                        self._processed_ids.add(wid)
                         continue
 
                     if post.is_comment:
                         logger.info(f"💬 跳过非本人发布微博: {wid}")
-                        processed_ids.add(wid)
+                        self._processed_ids.add(wid)
                         continue
 
                     weibo_dt = post.created_at_dt
                     if weibo_dt is None:
                         logger.warning(f"⚠️ 微博 {wid} 时间解析失败，跳过")
-                        processed_ids.add(wid)
+                        self._processed_ids.add(wid)
                         continue
 
                     if not is_in_range(weibo_dt, self.start_date, self.end_date):
@@ -196,17 +197,24 @@ class WeiboCrawler:
                             logger.info(
                                 f"⏭ 微博 {wid} ({weibo_dt}) 超出时间范围，跳过"
                             )
-                            processed_ids.add(wid)
+                            self._processed_ids.add(wid)
                             continue
 
                     random_delay(reason="处理下一条微博")
-                    result = self._process_single_post(post)
+                    try:
+                        result = self._process_single_post(post)
+                    except Exception as e:
+                        logger.error(f"❌ 处理微博 {wid} 时发生未预期异常: {e}")
+                        result = self._make_fail_result(post, str(e))
                     self.results.append(result)
-                    processed_ids.add(wid)
+                    self._processed_ids.add(wid)
                     new_processed += 1
 
                     if self.on_post_processed:
-                        self.on_post_processed(result)
+                        try:
+                            self.on_post_processed(result)
+                        except Exception as e:
+                            logger.error(f"❌ 回调处理失败（微博 {wid}）: {e}")
 
                     if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
                         logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
@@ -244,7 +252,6 @@ class WeiboCrawler:
     # ================================================================
     def _scroll_and_collect(self) -> None:
         """滚动页面，从 API 拦截数据中提取微博信息"""
-        processed_ids: set[str] = set()
         no_new_count = 0
 
         while True:
@@ -258,19 +265,19 @@ class WeiboCrawler:
 
             for post in new_posts:
                 wid = post.weibo_id
-                if not wid or wid in processed_ids:
+                if not wid or wid in self._processed_ids:
                     continue
 
                 # 置顶微博跳过（避免其过旧的时间导致提前停止爬取）
                 if post.is_pinned:
                     logger.info(f"📌 跳过置顶微博: {wid}")
-                    processed_ids.add(wid)
+                    self._processed_ids.add(wid)
                     continue
 
                 # 评论/赞过等非本人发布微博跳过
                 if post.is_comment:
                     logger.info(f"💬 跳过非本人发布微博: {wid}")
-                    processed_ids.add(wid)
+                    self._processed_ids.add(wid)
                     continue
 
                 # --- 时间范围判断 ---
@@ -278,7 +285,7 @@ class WeiboCrawler:
 
                 if weibo_dt is None:
                     logger.warning(f"⚠️ 微博 {wid} 时间解析失败，跳过")
-                    processed_ids.add(wid)
+                    self._processed_ids.add(wid)
                     continue
 
                 if not is_in_range(weibo_dt, self.start_date, self.end_date):
@@ -289,19 +296,26 @@ class WeiboCrawler:
                         return
                     else:
                         logger.info(f"⏭ 微博 {wid} ({weibo_dt}) 超出时间范围，跳过")
-                        processed_ids.add(wid)
+                        self._processed_ids.add(wid)
                         continue
 
                 # --- 处理单条 ---
                 random_delay(reason="处理下一条微博")
-                result = self._process_single_post(post)
+                try:
+                    result = self._process_single_post(post)
+                except Exception as e:
+                    logger.error(f"❌ 处理微博 {wid} 时发生未预期异常: {e}")
+                    result = self._make_fail_result(post, str(e))
                 self.results.append(result)
-                processed_ids.add(wid)
+                self._processed_ids.add(wid)
                 new_processed += 1
 
                 # 回调：写入 Excel 结果 & 更新最后抓取时间等
                 if self.on_post_processed:
-                    self.on_post_processed(result)
+                    try:
+                        self.on_post_processed(result)
+                    except Exception as e:
+                        logger.error(f"❌ 回调处理失败（微博 {wid}）: {e}")
 
                 if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
                     logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
@@ -322,10 +336,32 @@ class WeiboCrawler:
     # ================================================================
     # 单条微博处理（API 版本）
     # ================================================================
+    def _make_fail_result(self, post: WeiboPost, error_msg: str) -> dict:
+        """为处理失败的微博生成一条失败记录"""
+        time_display = (
+            post.created_at_dt.strftime("%Y-%m-%d %H:%M:%S")
+            if post.created_at_dt else "未知时间"
+        )
+        return {
+            "用户id": self.user_id,
+            "用户名": self.username,
+            "微博发布时间": time_display,
+            "微博类型": post.weibo_type,
+            "文案": post.text_raw or "",
+            "爬虫结果": f"失败: {error_msg[:80]}",
+            "微博url": f"https://weibo.com/{self.user_id}/{post.weibo_id}",
+            "图片数量": len(post.image_urls),
+            "Live图数量": len(post.live_photo_pairs),
+            "视频数量": len(post.video_urls),
+            "图片下载数量": 0,
+            "Live图下载数量": 0,
+            "视频下载数量": 0,
+        }
+
     def _process_single_post(self, post: WeiboPost) -> dict:
         """
         根据 WeiboPost（API 数据）处理一条微博：
-        下载媒体 → 截图 → 组装结果
+        下载媒体（带重试）→ 组装结果
         """
         # 1. 时间格式化
         if post.created_at_dt:
@@ -337,26 +373,44 @@ class WeiboCrawler:
 
         content = post.text_raw or ""
 
-        # 2. 微博 URL（后续多处使用）
+        # 2. 微博 URL
         weibo_url = f"https://weibo.com/{self.user_id}/{post.weibo_id}"
 
-        # 3. 下载媒体
+        # 3. 下载媒体（带重试）
         download_result = {"images": 0, "live_photos": 0, "videos": 0}
-        if self.download_media:
-            try:
-                download_result = self.downloader.download_weibo_media(
-                    weibo_id=post.weibo_id,
-                    weibo_time=time_formatted,
-                    content=content,
-                    image_urls=post.image_urls,
-                    live_photo_pairs=post.live_photo_pairs,
-                    video_urls=post.video_urls,
-                )
-            except Exception as e:
-                logger.error(f"❌ 媒体下载失败（微博 {post.weibo_id}）: {e}")
+        download_error = None
 
-        # 4. 微博类型
+        if self.download_media:
+            for attempt in range(1, self._post_retry_max + 1):
+                try:
+                    download_result = self.downloader.download_weibo_media(
+                        weibo_id=post.weibo_id,
+                        weibo_time=time_formatted,
+                        content=content,
+                        image_urls=post.image_urls,
+                        live_photo_pairs=post.live_photo_pairs,
+                        video_urls=post.video_urls,
+                    )
+                    download_error = None
+                    break
+                except Exception as e:
+                    download_error = str(e)
+                    if attempt < self._post_retry_max:
+                        wait_s = attempt * 3
+                        logger.warning(
+                            f"⚠️ 媒体下载失败（微博 {post.weibo_id}，"
+                            f"第 {attempt}/{self._post_retry_max} 次）: {e}，{wait_s}s 后重试..."
+                        )
+                        time_module.sleep(wait_s)
+                    else:
+                        logger.error(
+                            f"❌ 媒体下载失败（微博 {post.weibo_id}），"
+                            f"已重试 {self._post_retry_max} 次: {e}"
+                        )
+
+        # 4. 微博类型与结果
         weibo_type = post.weibo_type
+        status = "成功" if download_error is None else f"失败: {download_error[:80]}"
 
         return {
             "用户id": self.user_id,
@@ -364,7 +418,7 @@ class WeiboCrawler:
             "微博发布时间": time_display,
             "微博类型": weibo_type,
             "文案": content,
-            "爬虫结果": "成功",
+            "爬虫结果": status,
             "微博url": weibo_url,
             "图片数量": len(post.image_urls),
             "Live图数量": len(post.live_photo_pairs),

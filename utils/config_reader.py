@@ -182,6 +182,7 @@ def update_last_crawl_time(
         csv_path: CSV 文件路径，默认使用 settings.USERS_CSV
     """
     import csv
+    from utils.time_utils import parse_date
 
     if csv_path is None:
         csv_path = USERS_CSV
