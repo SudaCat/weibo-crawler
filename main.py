@@ -32,6 +32,7 @@ from config.settings import (
     DOWNLOAD_DIR,
     RESULT_DIR,
     HEADLESS,
+    EXCLUDED_IDS_FILE,
 )
 from utils.config_reader import read_users, update_last_crawl_time, update_last_run_time, validate_user
 from utils.excel_writer import create_result_workbook, append_result_row, write_results
@@ -85,6 +86,27 @@ def ensure_output_dirs() -> None:
 
 
 # ================================================================
+# 排除列表
+# ================================================================
+def load_excluded_ids(filepath: str) -> set[str]:
+    """
+    从 txt 文件加载已爬过的微博 ID 列表（每行一个 ID，忽略空行和 # 开头注释）
+    文件不存在时返回空集合
+    """
+    if not Path(filepath).exists():
+        logger.info(f"📋 排除列表不存在（{filepath}），将爬取全部微博")
+        return set()
+    ids = set()
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                ids.add(line)
+    logger.info(f"📋 已加载 {len(ids)} 条排除 ID（来自 {filepath}）")
+    return ids
+
+
+# ================================================================
 # 主流程
 # ================================================================
 def main() -> None:
@@ -92,6 +114,9 @@ def main() -> None:
     # --- 初始化 ---
     setup_logging()
     ensure_output_dirs()
+
+    # 加载已爬过的微博排除列表
+    excluded_ids = load_excluded_ids(str(EXCLUDED_IDS_FILE))
 
     # --- 1. 读取 & 校验用户配置 ---
     try:
@@ -211,6 +236,7 @@ def main() -> None:
                     cookies=cookies,
                     download_media=download_media,
                     on_post_processed=on_post,
+                    excluded_ids=excluded_ids,
                 )
                 user_results = crawler.crawl()
                 all_results.extend(user_results)

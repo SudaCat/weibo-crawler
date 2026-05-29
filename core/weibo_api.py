@@ -80,6 +80,7 @@ class WeiboAPIClient:
         """
         self.page = page
         self._intercepted_responses: list[dict] = []
+        self._api_response_count = 0  # 拦截到的 API 响应次数（含 0 条的情况）
         self._setup_interceptor()
 
     # ============================================================
@@ -89,23 +90,26 @@ class WeiboAPIClient:
         """设置网络响应拦截器，捕获 API 数据"""
         def on_response(response):
             url = response.url
-            logger.debug(f"🌐 网络请求: {url[:120]}")  # 打印日志
             if self.LIST_API_PATTERN.search(url):
-                logger.debug(f"🎯 匹配到 API: {url}")    # 打印日志
+                logger.info(f"🎯 匹配到 API 请求: {url[:150]}")
+                self._api_response_count += 1
                 try:
                     body = response.json()
                     if isinstance(body, dict) and body.get("ok") == 1:
                         self._intercepted_responses.append(body)
-                        logger.debug(f"📡 拦截到 API 响应: {len(body.get('data', {}).get('list', []))} 条微博")
-                except Exception:
-                    pass  # 非 JSON 响应忽略
+                        list_len = len(body.get('data', {}).get('list', []))
+                        logger.info(f"📡 拦截到 API 响应: {list_len} 条微博")
+                    else:
+                        logger.warning(f"⚠️ API 响应 ok≠1: {body.get('ok')}, url={url[:120]}")
+                except Exception as e:
+                    logger.warning(f"⚠️ API 响应解析失败: {e}, url={url[:120]}")
 
         self.page.on("response", on_response)
 
     # ============================================================
     # 公开方法：获取拦截到的数据
     # ============================================================
-    def get_intercepted_posts(self, clear: bool = True) -> list[WeiboPost]:
+    def get_intercepted_posts(self, clear: bool = True) -> tuple[list[WeiboPost], bool]:
         """
         获取所有拦截到的微博帖子
 
@@ -113,15 +117,17 @@ class WeiboAPIClient:
             clear: 是否清空已取出的数据
 
         Returns:
-            WeiboPost 列表
+            (WeiboPost 列表, 本轮是否有 API 响应被拦截)
         """
         all_posts = []
         for resp in self._intercepted_responses:
             posts = self._parse_response(resp)
             all_posts.extend(posts)
+        had_response = self._api_response_count > 0
         if clear:
             self._intercepted_responses.clear()
-        return all_posts
+            self._api_response_count = 0
+        return all_posts, had_response
 
     # ============================================================
     # JSON 解析

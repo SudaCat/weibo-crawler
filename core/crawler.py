@@ -38,6 +38,7 @@ class WeiboCrawler:
         cookies: Optional[list[dict]] = None,
         download_media: bool = True,
         on_post_processed: Optional[Callable[[dict], None]] = None,
+        excluded_ids: Optional[set[str]] = None,
     ):
         self.page = page
         self.user_id = user_id
@@ -56,7 +57,10 @@ class WeiboCrawler:
         self.downloader = MediaDownloader(user_id=user_id, username=username, cookies=cookies)
 
         self.results: list[dict] = []
-        self._processed_ids: set[str] = set()  # 跨重试去重
+        # 已排除 ID（历史爬过的 + 本次运行已处理的）
+        self._excluded_ids = excluded_ids or set()
+        self._processed_ids: set[str] = self._excluded_ids.copy()
+        self._skipped_existing = 0  # 命中排除列表的跳过数
         self._post_retry_max = POST_RETRY_MAX
 
     # ================================================================
@@ -81,12 +85,12 @@ class WeiboCrawler:
         self.page.goto(homepage_url, wait_until="domcontentloaded")
         self.page.wait_for_timeout(3_000)
 
-        # 清空导航时可能被拦截器捕获的旧数据
-        self.api_client.get_intercepted_posts(clear=True)
-
         self._scroll_and_collect()
 
-        logger.info(f"✅ 用户 {self.username} 爬取完成，共 {len(self.results)} 条微博")
+        logger.info(
+            f"✅ 用户 {self.username} 爬取完成，共 {len(self.results)} 条微博"
+            + (f"（跳过已爬 {self._skipped_existing} 条）" if self._skipped_existing else "")
+        )
         return self.results
 
     # ================================================================
@@ -94,12 +98,31 @@ class WeiboCrawler:
     # ================================================================
     def _scroll_and_collect(self) -> None:
         """滚动页面，从 API 拦截数据中提取微博信息"""
+        empty_scrolls = 0
+        MAX_EMPTY_SCROLLS = 30  # 连续 30 次滚动无新数据则停止
+
         while True:
-            new_posts = self.api_client.get_intercepted_posts(clear=True)
+            new_posts, had_api_response = self.api_client.get_intercepted_posts(clear=True)
+
+            if new_posts:
+                empty_scrolls = 0
+            elif had_api_response:
+                # API 有响应但返回 0 条 → 没有更多数据了
+                logger.info("⏹ API 返回 0 条微博，已到达末尾，停止爬取")
+                return
+            else:
+                empty_scrolls += 1
+                if empty_scrolls >= MAX_EMPTY_SCROLLS:
+                    logger.info(
+                        f"⏹ 连续 {empty_scrolls} 次滚动无 API 响应，停止爬取"
+                    )
+                    return
 
             for post in new_posts:
                 wid = post.weibo_id
                 if not wid or wid in self._processed_ids:
+                    if wid and wid in self._excluded_ids:
+                        self._skipped_existing += 1
                     continue
 
                 # 置顶微博跳过（避免其过旧的时间导致提前停止爬取）
@@ -262,4 +285,4 @@ class WeiboCrawler:
         new_scroll = current_scroll + view_height * 0.8
         self.page.evaluate(f"window.scrollTo(0, {new_scroll})")
         self.page.wait_for_timeout(SCROLL_WAIT)
-        logger.debug(f"📜 滚动: {current_scroll:.0f} → {new_scroll:.0f}")
+        logger.info(f"📜 滚动: {current_scroll:.0f} → {new_scroll:.0f}")
