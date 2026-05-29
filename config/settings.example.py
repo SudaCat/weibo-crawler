@@ -90,9 +90,9 @@ COOKIE_REDIRECT_KEYWORD = "passport.weibo.com"  # 被重定向到登录页的 UR
 # 爬虫配置
 # ============================================================
 SCROLL_WAIT = 2000                      # 每次滚动后等待时间（毫秒）
-MAX_SCROLL_NO_NEW = 3                   # 连续无新内容滚动的最大次数，之后停止
+MAX_SCROLL_NO_NEW = 5                   # 连续无新内容滚动的最大次数
 MAX_WEIBO_COUNT = 0                     # 单用户最大爬取条数，0 = 不限制
-SEARCH_RETRY_MAX = 3                    # 搜索接口最大重试次数
+POST_RETRY_MAX = 3                      # 单条微博处理最大重试次数
 
 # ============================================================
 # 防封禁 - 随机延时（秒）
@@ -115,15 +115,7 @@ IMAGE_SIZE_PREFERENCE = ["largest", "original", "mw2000", "large"]
 # ============================================================
 # API 数据源配置
 # ============================================================
-USE_API_DATA_SOURCE = True              # 优先使用 API 拦截数据（推荐开启）
-API_FALLBACK_TO_DOM = True              # API 获取失败时回退到 DOM 解析
-
-# 微博文案文本区域 XPath（用于 DOM 回退提取纯文案文字）
-WEIBO_TEXT_XPATHS = [
-    "//div[starts-with(@class, '_wbtext')]",         # 新版微博文案区域
-    "//div[contains(@class, 'WB_text')]",            # 老版微博文案
-    "//div[contains(@class, 'detail_wbtext')]",      # 旧版
-]
+USE_API_DATA_SOURCE = True              # 使用 API 拦截数据（必须开启）
 # ============================================================
 # Excel 输出配置
 # ============================================================
