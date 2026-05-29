@@ -26,8 +26,8 @@ DOWNLOAD_DIR = OUTPUT_DIR / "downloads"      # 下载的媒体文件
 RESULT_DIR = OUTPUT_DIR / "results"          # Excel 爬虫报告
 
 # 运行时状态
-COOKIE_DIR = STATE_DIR / "cookies"
-COOKIE_FILE = COOKIE_DIR / "weibo_cookies.json"
+COOKIE_FILE = STATE_DIR / "weibo_cookies.json"
+EXCLUDED_IDS_FILE = STATE_DIR / "excluded_weibo_ids.txt"  # 已爬过的微博 ID 列表
 
 # ============================================================
 # 日志目录

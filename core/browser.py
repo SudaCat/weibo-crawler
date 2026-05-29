@@ -125,7 +125,6 @@ class BrowserManager:
         """保存当前上下文的 Cookie 到文件"""
         import json
 
-        COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
         cookies = self._context.cookies()
         with open(COOKIE_FILE, "w", encoding="utf-8") as f:
             json.dump(cookies, f, ensure_ascii=False, indent=2)
