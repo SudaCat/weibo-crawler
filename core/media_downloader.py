@@ -6,6 +6,7 @@ Live 图静态与动态保持相同序号不同后缀，便于检索
 """
 
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -14,6 +15,7 @@ from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
+from tqdm import tqdm
 
 from config.settings import DOWNLOAD_DIR, DOWNLOAD_RETRY, DOWNLOAD_CONCURRENCY
 
@@ -26,6 +28,10 @@ class MediaDownloader:
 
     # Windows 文件名非法字符正则
     ILLEGAL_CHARS_PATTERN = re.compile(r'[\\/:*?"<>|\n\r\t]')
+
+    # tqdm 进度条位置池（线程安全）
+    _position_lock = threading.Lock()
+    _position_pool: list[int] = []
 
     def __init__(
         self,
@@ -177,7 +183,11 @@ class MediaDownloader:
         return f"{weibo_time}_{weibo_id}_{safe}"
 
     def _batch_download(self, tasks: list[tuple]) -> list[bool]:
-        """线程池并发下载，返回每个任务的成功状态"""
+        """线程池并发下载，每个文件显示独立进度条"""
+        # 初始化位置池
+        with self._position_lock:
+            self._position_pool = list(range(DOWNLOAD_CONCURRENCY))
+
         results = [False] * len(tasks)
         with ThreadPoolExecutor(max_workers=DOWNLOAD_CONCURRENCY) as executor:
             future_to_idx = {}
@@ -196,8 +206,20 @@ class MediaDownloader:
         logger.info(f"  📥 {total_ok}/{len(tasks)} 个文件下载成功")
         return results
 
+    @classmethod
+    def _acquire_position(cls) -> int:
+        """从位置池获取一个进度条位置"""
+        with cls._position_lock:
+            return cls._position_pool.pop(0) if cls._position_pool else 0
+
+    @classmethod
+    def _release_position(cls, position: int) -> None:
+        """归还进度条位置"""
+        with cls._position_lock:
+            cls._position_pool.append(position)
+
     def _download_single(self, url: str, filepath: Path, media_type: str) -> bool:
-        """下载单个文件，带重试和跳过已有"""
+        """下载单个文件，带重试、跳过已有、进度条"""
         if filepath.exists() and filepath.stat().st_size > 0:
             logger.debug(f"  ⏭ 跳过: {filepath.name}")
             return True
@@ -207,14 +229,35 @@ class MediaDownloader:
                 with httpx.Client(
                     cookies=self.cookies,
                     headers=self.headers,
-                    timeout=60.0,
+                    timeout=120.0,
                     follow_redirects=True,
                 ) as client:
-                    resp = client.get(url)
-                    resp.raise_for_status()
-                    filepath.write_bytes(resp.content)
-                    size_kb = len(resp.content) / 1024
-                    logger.debug(f"  ✅ {filepath.name} ({size_kb:.1f} KB)")
+                    with client.stream("GET", url) as resp:
+                        resp.raise_for_status()
+                        total = int(resp.headers.get("content-length", 0))
+                        fname = filepath.name
+
+                        pos = self._acquire_position()
+                        try:
+                            bar = tqdm(
+                                total=total,
+                                unit="B",
+                                unit_scale=True,
+                                unit_divisor=1024,
+                                desc=fname[:45],
+                                position=pos,
+                                leave=False,
+                                ncols=100,
+                                bar_format="{desc:<30} {percentage:3.0f}%|{bar:20}| {rate_fmt}",
+                            )
+                            with bar:
+                                with open(filepath, "wb") as f:
+                                    for chunk in resp.iter_bytes(chunk_size=65536):
+                                        f.write(chunk)
+                                        bar.update(len(chunk))
+                        finally:
+                            self._release_position(pos)
+
                     return True
             except httpx.HTTPStatusError as e:
                 logger.warning(f"  ⚠️ HTTP {e.response.status_code} - {filepath.name} ({attempt}/{DOWNLOAD_RETRY})")
