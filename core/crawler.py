@@ -179,6 +179,9 @@ class WeiboCrawler:
 
             # --- 滚动 ---
             self._scroll_down()
+            # 滚动后如有新数据到达，立即处理，避免再次滚动触发多余请求
+            if self.api_client._intercepted_responses:
+                continue
 
     # ================================================================
     # 单条微博处理（API 版本）

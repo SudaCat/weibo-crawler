@@ -92,10 +92,10 @@ class WeiboAPIClient:
             url = response.url
             if self.LIST_API_PATTERN.search(url):
                 logger.info(f"🎯 匹配到 API 请求: {url[:150]}")
-                self._api_response_count += 1
                 try:
                     body = response.json()
                     if isinstance(body, dict) and body.get("ok") == 1:
+                        self._api_response_count += 1
                         self._intercepted_responses.append(body)
                         list_len = len(body.get('data', {}).get('list', []))
                         logger.info(f"📡 拦截到 API 响应: {list_len} 条微博")
