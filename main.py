@@ -26,8 +26,9 @@ from config.settings import (
     LOG_FORMAT,
     LOG_ROTATION,
     LOG_RETENTION,
+    INPUT_DIR,
     OUTPUT_DIR,
-    COOKIE_DIR,
+    STATE_DIR,
     DOWNLOAD_DIR,
     RESULT_DIR,
     HEADLESS,
@@ -77,10 +78,10 @@ def setup_logging() -> None:
 # 初始化输出目录
 # ================================================================
 def ensure_output_dirs() -> None:
-    """确保所有输出目录存在"""
-    for d in (OUTPUT_DIR, COOKIE_DIR, DOWNLOAD_DIR, RESULT_DIR):
+    """确保所有运行时目录存在"""
+    for d in (INPUT_DIR, OUTPUT_DIR, STATE_DIR, DOWNLOAD_DIR, RESULT_DIR):
         d.mkdir(parents=True, exist_ok=True)
-    logger.debug("📁 输出目录就绪")
+    logger.debug("📁 运行时目录就绪")
 
 
 # ================================================================
@@ -97,14 +98,14 @@ def main() -> None:
         users = read_users()
     except FileNotFoundError as e:
         logger.error(f"❌ 配置文件缺失: {e}")
-        logger.error("请在 config/users.csv 中添加待爬取用户（参考项目文档格式）")
+        logger.error("请在 input/users.csv 中添加待爬取用户（参考项目文档格式）")
         return
     except ValueError as e:
         logger.error(f"❌ 配置文件格式错误: {e}")
         return
 
     if not users:
-        logger.warning("⚠️ 用户列表为空，请检查 config/users.csv")
+        logger.warning("⚠️ 用户列表为空，请检查 input/users.csv")
         return
 
     # 过滤校验失败的用户

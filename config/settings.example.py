@@ -12,25 +12,27 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent  # weibo-crawler/
 
 # ============================================================
-# 输出目录（运行时自动创建）
+# 路径配置
 # ============================================================
-OUTPUT_DIR = BASE_DIR / "output"
-COOKIE_DIR = OUTPUT_DIR / "cookies"
-DOWNLOAD_DIR = OUTPUT_DIR / "downloads"
-RESULT_DIR = OUTPUT_DIR / "results"
+INPUT_DIR = BASE_DIR / "input"               # 输入：用户爬取列表 users.csv
+OUTPUT_DIR = BASE_DIR / "output"             # 输出根目录
+STATE_DIR = BASE_DIR / "state"               # 运行时状态（Cookie 等）
 
-# Cookie 文件路径
+# 输入文件
+USERS_CSV = INPUT_DIR / "users.csv"
+
+# 输出目录
+DOWNLOAD_DIR = OUTPUT_DIR / "downloads"      # 下载的媒体文件
+RESULT_DIR = OUTPUT_DIR / "results"          # Excel 爬虫报告
+
+# 运行时状态
+COOKIE_DIR = STATE_DIR / "cookies"
 COOKIE_FILE = COOKIE_DIR / "weibo_cookies.json"
 
 # ============================================================
 # 日志目录
 # ============================================================
 LOG_DIR = BASE_DIR / "logs"
-
-# ============================================================
-# 配置文件路径
-# ============================================================
-USERS_CSV = BASE_DIR / "config" / "users.csv"
 
 # ============================================================
 # 微博 URL 模板

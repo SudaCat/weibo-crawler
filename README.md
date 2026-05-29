@@ -22,8 +22,7 @@ weibo-crawler/
 ├── main.py                     # 程序入口，编排完整爬取流程
 ├── config/
 │   ├── settings.example.py     # 配置模板（首次运行自动复制为 settings.py）
-│   ├── settings.py             # 全局配置常量（路径、URL、浏览器、延时等）
-│   └── users.csv               # 目标用户列表
+│   └── settings.py             # 全局配置常量（路径、URL、浏览器、延时等）
 ├── core/
 │   ├── browser.py              # BrowserManager — Playwright 浏览器生命周期管理
 │   ├── cookie_manager.py       # CookieManager — 扫码登录与 Cookie 校验/持久化
@@ -35,10 +34,13 @@ weibo-crawler/
 │   ├── config_reader.py        # users.csv 读取、校验与自动迁移
 │   ├── excel_writer.py         # 结果写入格式化 Excel
 │   └── time_utils.py           # 日期解析与时间范围判断
+├── input/                      # 用户输入
+│   └── users.csv               # 目标用户列表
 ├── output/                     # 运行时生成
-│   ├── cookies/                # 持久化登录 Cookie
 │   ├── downloads/              # 下载的媒体文件（按用户/帖子分目录）
 │   └── results/                # 输出的 Excel 报告
+├── state/                      # 运行时状态
+│   └── cookies/                # 持久化登录 Cookie
 └── logs/                       # 运行时日志
 ```
 
@@ -62,7 +64,7 @@ playwright install chromium
 
 ### 目标用户
 
-编辑 `config/users.csv`，格式为逗号分隔（CSV）：
+编辑 `input/users.csv`，格式为逗号分隔（CSV）：
 
 ```
 用户id,用户名,抓取开始时间,抓取停止时间,最后抓取时间,最后运行时间,是否生效,是否下载媒体文件
@@ -111,7 +113,7 @@ python main.py
 
 ### 爬取流程
 
-1. 读取 `config/users.csv`，校验用户配置
+1. 读取 `input/users.csv`，校验用户配置
 2. 启动浏览器，检查 Cookie 有效性
 3. 对每个生效用户，导航到其主页建立浏览器上下文
 4. 通过 `page.evaluate` 执行 `fetch()` 调用微博搜索接口，按自然月拆分时间范围
@@ -124,6 +126,6 @@ python main.py
 | 路径 | 内容 |
 |------|------|
 | `output/results/爬虫结果_*.xlsx` | Excel 汇总报告，含用户、时间、类型、正文、媒体数量、下载状态、链接 |
-| `output/downloads/{用户名}_{uid}/{时间}_{微博id}_{正文}/` | 媒体文件（按用户分目录） |
-| `output/cookies/weibo_cookies.json` | 持久化 Cookie |
+| `output/downloads/{用户id}_{用户名}/{时间}_{微博id}_{正文}/` | 媒体文件（按用户分目录） |
+| `state/cookies/weibo_cookies.json` | 持久化 Cookie |
 | `logs/crawler_YYYY-MM-DD.log` | 按天轮转的运行日志 |

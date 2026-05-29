@@ -11,7 +11,13 @@ venv/
 .vscode/
 .idea/
 
-# 运行时输出（爬虫结果、下载的媒体、cookie 等）
+# 用户输入（爬取目标列表）
+input/
+
+# 运行时状态（Cookie 等）
+state/
+
+# 运行时输出（爬虫结果、下载的媒体）
 output/
 logs/
 
@@ -19,5 +25,4 @@ logs/
 fixtures/
 
 # 用户配置（含敏感信息，不入库）
-config/users.csv
 config/settings.py
