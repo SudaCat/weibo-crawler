@@ -15,7 +15,6 @@ from playwright.sync_api import Page
 from config.settings import (
     WEIBO_USER_PAGE,
     SCROLL_WAIT,
-    MAX_SCROLL_NO_NEW,
     MAX_WEIBO_COUNT,
     POST_RETRY_MAX,
     USE_API_DATA_SOURCE,
@@ -95,13 +94,8 @@ class WeiboCrawler:
     # ================================================================
     def _scroll_and_collect(self) -> None:
         """滚动页面，从 API 拦截数据中提取微博信息"""
-        no_new_count = 0
-        stop_threshold = MAX_SCROLL_NO_NEW if MAX_SCROLL_NO_NEW > 0 else 5
-
         while True:
             new_posts = self.api_client.get_intercepted_posts(clear=True)
-
-            new_processed = 0
 
             for post in new_posts:
                 wid = post.weibo_id
@@ -148,7 +142,6 @@ class WeiboCrawler:
                     result = self._make_fail_result(post, str(e))
                 self.results.append(result)
                 self._processed_ids.add(wid)
-                new_processed += 1
 
                 # 回调：写入 Excel 结果 & 更新最后抓取时间等
                 if self.on_post_processed:
@@ -160,15 +153,6 @@ class WeiboCrawler:
                 if MAX_WEIBO_COUNT > 0 and len(self.results) >= MAX_WEIBO_COUNT:
                     logger.info(f"⏹ 已达最大爬取数 {MAX_WEIBO_COUNT}，停止")
                     return
-
-            # 停止判断
-            if new_processed == 0:
-                no_new_count += 1
-                if no_new_count >= stop_threshold:
-                    logger.info(f"⏹ 连续 {stop_threshold} 轮无新内容，停止滚动")
-                    return
-            else:
-                no_new_count = 0
 
             # --- 滚动 ---
             self._scroll_down()
