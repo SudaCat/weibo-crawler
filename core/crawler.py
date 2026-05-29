@@ -279,10 +279,15 @@ class WeiboCrawler:
     # 滚动辅助
     # ================================================================
     def _scroll_down(self) -> None:
-        human_like_delay(1, 2)
+        human_like_delay(0.3, 0.8)
         current_scroll = self.page.evaluate("window.scrollY")
         view_height = self.page.evaluate("window.innerHeight")
-        new_scroll = current_scroll + view_height * 0.8
+        page_height = self.page.evaluate("document.body.scrollHeight")
+        # 直接滚到接近页面底部，触发下一页 API 加载
+        new_scroll = max(
+            current_scroll + view_height,
+            page_height - view_height * 1.5
+        )
         self.page.evaluate(f"window.scrollTo(0, {new_scroll})")
         self.page.wait_for_timeout(SCROLL_WAIT)
-        logger.info(f"📜 滚动: {current_scroll:.0f} → {new_scroll:.0f}")
+        logger.info(f"📜 滚动: {current_scroll:.0f} → {new_scroll:.0f}（页面高度 {page_height:.0f}）")
