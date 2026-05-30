@@ -342,39 +342,47 @@ class WeiboAPIClient:
 
         return all_urls, has_any_video
 
+    # 旧 API (type=11) quality 字符串 → 近似 quality_index 映射
+    _LEGACY_QUALITY_MAP: dict[str, int] = {
+        "mp4_1080p": 1080,
+        "mp4_720p": 720,
+        "mp4_hd": 480,
+        "hd": 480,
+        "mp4_sd": 360,
+        "sd": 360,
+    }
+
     def _pick_best_video_urls(self, playback_list: list[dict]) -> list[str]:
         """
-        从播放列表中选择最佳质量的视频 URL
+        从播放列表中选择 quality_index 最高的视频 URL。
 
         支持两种格式：
-        - 新 API (type=5): url 在 play_info 中，label 在 meta 中
-        - 旧 API (type=11): url 和 quality 在顶层
-
-        质量排序（降序）：4K > 1080p > 720p > hd > 480p > sd > 其他
+        - 新 API (type=5): quality_index 在 meta 中，url 在 play_info 中
+        - 旧 API (type=11): url 和 quality 字符串在顶层
         """
-        urls_by_quality = {}
+        best_url = ""
+        best_index = -1
+
         for item in playback_list:
             play_info = item.get("play_info", {})
             if play_info and play_info.get("url"):
-                # type=5 嵌套格式
-                label = play_info.get("label", "unknown")
-                urls_by_quality[label] = play_info["url"]
+                # type=5: 直接取 meta.quality_index 数值
+                meta = item.get("meta", {})
+                qi = meta.get("quality_index", 0)
+                if qi > best_index:
+                    best_index = qi
+                    best_url = play_info["url"]
             else:
-                # type=11 平铺格式
-                quality = item.get("quality", "unknown")
+                # type=11: quality 字符串映射为近似数值
+                quality = item.get("quality", "")
                 url = item.get("url", "")
                 if url:
-                    urls_by_quality[quality] = url
+                    qi = self._LEGACY_QUALITY_MAP.get(quality, 0)
+                    if qi > best_index:
+                        best_index = qi
+                        best_url = url
 
-        for pref in ("mp4_4K", "mp4_2160p", "mp4_uhd", "uhd",
-                     "mp4_1080p", "mp4_720p", "hd", "mp4_hd", "sd", "mp4_sd"):
-            if pref in urls_by_quality:
-                return [urls_by_quality[pref]]
-
-        if urls_by_quality:
-            return [list(urls_by_quality.values())[0]]
-
-        return []
+        return [best_url] if best_url else []
 
     # ============================================================
     # 时间解析
