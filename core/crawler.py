@@ -53,8 +53,10 @@ class WeiboCrawler:
         # API 客户端（在 crawl 时初始化，需要页面已导航到目标）
         self.api_client: Optional[WeiboAPIClient] = None
 
-        # 下载
-        self.downloader = MediaDownloader(user_id=user_id, username=username, cookies=cookies)
+        # 下载器（仅在需要下载媒体时才创建，避免提前生成空目录）
+        self.downloader: Optional[MediaDownloader] = None
+        if download_media:
+            self.downloader = MediaDownloader(user_id=user_id, username=username, cookies=cookies)
 
         self.results: list[dict] = []
         # 已排除 ID（历史爬过的 + 本次运行已处理的）

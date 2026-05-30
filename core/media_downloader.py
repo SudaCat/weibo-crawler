@@ -43,7 +43,6 @@ class MediaDownloader:
         self.user_id = user_id
         dir_name = f"{user_id}_{username}" if username else user_id
         self.base_dir = DOWNLOAD_DIR / dir_name
-        self.base_dir.mkdir(parents=True, exist_ok=True)
 
         self.headers = {
             "User-Agent": (
@@ -115,7 +114,6 @@ class MediaDownloader:
         """
         folder_name = self._make_folder_name(weibo_time, weibo_id, content)
         target_dir = self.base_dir / folder_name
-        target_dir.mkdir(parents=True, exist_ok=True)
 
         all_tasks = []  # [(url, filepath, media_type), ...]
         seq = 1
@@ -151,6 +149,8 @@ class MediaDownloader:
         if not all_tasks:
             logger.info(f"  📭 无媒体文件（微博 {weibo_id}）")
             return {"images": 0, "live_photos": 0, "videos": 0}
+
+        target_dir.mkdir(parents=True, exist_ok=True)
 
         # --- 并发下载 ---
         results = self._batch_download(all_tasks)
